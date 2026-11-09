@@ -51,6 +51,9 @@ lv_obj_t *btnPlay;
 lv_obj_t *lblPlayPause;
 
 lv_obj_t *screenList = nullptr;
+lv_obj_t *screenSettings = nullptr;
+lv_obj_t *sliderBrightness;
+lv_obj_t *lblBrightness;
 lv_obj_t *lblListTitle;
 lv_obj_t *lblListStatus;
 lv_obj_t *lblListPage;
@@ -708,6 +711,60 @@ void onOpenDevices(lv_event_t *) { openList(LIST_DEVICES); }
 void onOpenPlaylists(lv_event_t *) { openList(LIST_PLAYLISTS); }
 void onBack(lv_event_t *) { showPlayerScreen(); }
 
+void setBrightnessLabel(int value) {
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%d%%", value);
+    lv_label_set_text(lblBrightness, buf);
+}
+
+// Changes the backlight while dragging; saves when the finger lifts.
+void onBrightness(lv_event_t *e) {
+    int value = lv_slider_get_value(sliderBrightness);
+    display_set_brightness(value);
+    setBrightnessLabel(value);
+    if (lv_event_get_code(e) == LV_EVENT_RELEASED && value != g_config.screenBrightness) {
+        g_config.screenBrightness = value;
+        config_save();
+    }
+}
+
+void onOpenSettings(lv_event_t *) {
+    lv_slider_set_value(sliderBrightness, g_config.screenBrightness, LV_ANIM_OFF);
+    setBrightnessLabel(g_config.screenBrightness);
+    lv_scr_load(screenSettings);
+}
+
+void buildSettingsUi() {
+    screenSettings = lv_obj_create(nullptr);
+    styleScreen(screenSettings, DEFAULT_TINT);
+
+    lv_obj_t *back = makeGlassButton(screenSettings, S(10), S(6), S(44), S(28), onBack, nullptr);
+    makeButtonLabel(back, LV_SYMBOL_LEFT);
+    lv_obj_t *title = makeLabel(screenSettings, S(62), S(9), SCREEN_W - S(140), TEXT_MAIN, &FONT_UI_LARGE);
+    makeSingleLine(title, &FONT_UI_LARGE);
+    lv_label_set_text(title, "Settings");
+
+    lv_obj_t *card = makeGlass(screenSettings, S(12), S(44), SCREEN_W - S(24), S(64), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *lbl = makeLabel(card, S(14), S(8), S(160), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, LV_SYMBOL_IMAGE "  Brightness");
+    lblBrightness = makeLabel(card, SCREEN_W - S(24) - S(74), S(8), S(60), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_set_style_text_align(lblBrightness, LV_TEXT_ALIGN_RIGHT, 0);
+
+    sliderBrightness = lv_slider_create(card);
+    lv_obj_set_pos(sliderBrightness, S(20), S(40));
+    lv_obj_set_size(sliderBrightness, SCREEN_W - S(24) - S(40), S(8));
+    lv_slider_set_range(sliderBrightness, DISPLAY_MIN_BRIGHTNESS, 100);
+    lv_obj_set_style_bg_color(sliderBrightness, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(sliderBrightness, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sliderBrightness, DEFAULT_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(sliderBrightness, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(sliderBrightness, S(6), LV_PART_KNOB);
+    lv_obj_set_ext_click_area(sliderBrightness, S(14));
+    lv_obj_add_event_cb(sliderBrightness, onBrightness, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(sliderBrightness, onBrightness, LV_EVENT_RELEASED, nullptr);
+}
+
 void buildListUi() {
     screenList = lv_obj_create(nullptr);
     styleScreen(screenList, DEFAULT_TINT);
@@ -784,6 +841,9 @@ void buildPlayerUi() {
 
     lv_obj_t *btnLists = makeGlassButton(screenPlayer, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
     makeButtonLabel(btnLists, LV_SYMBOL_LIST);
+
+    lv_obj_t *btnSettings = makeGlassButton(screenPlayer, SCREEN_W - S(180), S(5), S(54), S(28), onOpenSettings, nullptr);
+    makeButtonLabel(btnSettings, LV_SYMBOL_SETTINGS);
 
     // The text sits in a column anchored just above the controls: any message, the title (up to two lines),
     // then the artist. Empty lines are hidden, so the text always ends right above the controls.
@@ -919,6 +979,7 @@ void ui_init() {
     buildSetupUi();
     buildPlayerUi();
     buildListUi();
+    buildSettingsUi();
 }
 
 void ui_set_info_provider(String (*provider)()) {

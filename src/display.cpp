@@ -111,7 +111,8 @@ void panelInit() {
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
 }
 
-void setBacklight(bool on) { digitalWrite(PIN_BL, on ? HIGH : LOW); }
+constexpr int BL_PIN = PIN_BL;
+constexpr bool BL_ACTIVE_HIGH = true;
 
 uint8_t touchAddr = 0;
 
@@ -188,8 +189,6 @@ void readTouch(lv_indev_data_t *data) {
 
 void hardwareInit() {
     panelInit();
-    pinMode(PIN_BL, OUTPUT);
-    digitalWrite(PIN_BL, HIGH);
     touchInit();
 
     size_t bufPixels = SCREEN_W * SCREEN_H;
@@ -210,7 +209,8 @@ constexpr int TS_MISO = 39;
 
 TFT_eSPI tft;
 
-void setBacklight(bool on) { digitalWrite(TFT_BL, on ? TFT_BACKLIGHT_ON : !TFT_BACKLIGHT_ON); }
+constexpr int BL_PIN = TFT_BL;
+constexpr bool BL_ACTIVE_HIGH = TFT_BACKLIGHT_ON == HIGH;
 SPIClass touchSPI(VSPI);
 XPT2046_Touchscreen touch(TS_CS, TS_IRQ);
 
@@ -251,8 +251,28 @@ void hardwareInit() {
 
 #endif
 
+// The backlight is dimmed with PWM. Channel 7 is clear of the CYD's RGB LED channels (2-4).
+constexpr int BL_CHANNEL = 7;
+constexpr int BL_BITS = 10;
+constexpr int BL_MAX = (1 << BL_BITS) - 1;
+int brightness = 100;
+
 bool screenOn = true;
 bool swallowTouch = false;
+
+void setBacklight(bool on) {
+    // Perceived brightness is roughly the square of the duty cycle.
+    uint32_t duty = on ? (uint32_t)BL_MAX * brightness * brightness / 10000 : 0;
+    ledcWrite(BL_CHANNEL, BL_ACTIVE_HIGH ? duty : BL_MAX - duty);
+}
+
+void backlightInit() {
+    // The backlight drivers are slow: at 20 kHz short pulses never light the LEDs and brightness only
+    // changed near the top of the range. 1 kHz dims smoothly and is too fast to see flicker.
+    ledcSetup(BL_CHANNEL, 1000, BL_BITS);
+    ledcAttachPin(BL_PIN, BL_CHANNEL);
+    setBacklight(true);
+}
 void (*touchWakeCb)() = nullptr;
 
 void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
@@ -273,6 +293,11 @@ void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
 
 } // namespace
 
+void display_set_brightness(int percent) {
+    brightness = constrain(percent, DISPLAY_MIN_BRIGHTNESS, 100);
+    if (screenOn) setBacklight(true);
+}
+
 void display_set_screen_on(bool on) {
     if (on == screenOn) return;
     screenOn = on;
@@ -286,6 +311,7 @@ void display_on_touch_wake(void (*callback)()) { touchWakeCb = callback; }
 void display_init() {
     lv_init();
     hardwareInit();
+    backlightInit();
 
     lv_disp_drv_init(&dispDrv);
     dispDrv.hor_res = SCREEN_W;

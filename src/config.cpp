@@ -1,5 +1,6 @@
 #include "config.h"
 #include "board.h"
+#include "display.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <algorithm>
@@ -48,6 +49,7 @@ void config_load() {
     g_config.clientId = doc["client_id"] | "";
     g_config.artSize = doc["art_size"] | DEFAULT_ART_SIZE;
     g_config.ledBrightness = constrain((int)(doc["led_brightness"] | 40), 0, 100);
+    g_config.screenBrightness = constrain((int)(doc["screen_brightness"] | 100), DISPLAY_MIN_BRIGHTNESS, 100);
     g_config.refreshToken = doc["refresh_token"] | "";
     g_config.webPassHash = doc["web_pass_hash"] | "";
     g_config.webPassSalt = doc["web_pass_salt"] | "";
@@ -74,6 +76,7 @@ bool config_save() {
     doc["client_id"] = g_config.clientId;
     doc["art_size"] = g_config.artSize;
     doc["led_brightness"] = g_config.ledBrightness;
+    doc["screen_brightness"] = g_config.screenBrightness;
     doc["refresh_token"] = g_config.refreshToken;
     doc["web_pass_hash"] = g_config.webPassHash;
     doc["web_pass_salt"] = g_config.webPassSalt;

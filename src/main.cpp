@@ -328,6 +328,7 @@ void setup() {
     led_init();
 
     display_init();
+    display_set_brightness(g_config.screenBrightness);
     ui_init();
     ui_set_info_provider(deviceInfo);
     ui_set_reset_handler(requestWifiReset);

@@ -21,6 +21,7 @@ struct AppConfig {
     String clientId;
     int artSize = DEFAULT_ART_SIZE;
     int ledBrightness = 40;
+    int screenBrightness = 100;
     String webPassHash;
     String webPassSalt;
     String refreshToken;
