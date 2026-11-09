@@ -225,7 +225,7 @@ function login(){
   if(!challenge){msg('Not ready yet, try again.');return;}
   const p=new URLSearchParams({client_id:id,response_type:'code',redirect_uri:'http://127.0.0.1:8080/callback',
     code_challenge_method:'S256',code_challenge:challenge,
-    scope:'user-read-playback-state user-modify-playback-state playlist-read-private'});
+    scope:'user-read-playback-state user-modify-playback-state playlist-read-private user-library-read user-library-modify'});
   window.open('https://accounts.spotify.com/authorize?'+p,'_blank');
 }
 

@@ -206,6 +206,10 @@ HttpResult httpDo(const char *method, const String &url, const char *contentType
 }
 
 String volumeRefusedBy;
+// Liked Songs status of the current track, fetched once per track.
+String likedForId;
+int8_t likedValue = -1;
+bool likeNeedsLogin = false;
 
 void setMessage(const String &msg) {
     xSemaphoreTake(stateLock, portMAX_DELAY);
@@ -314,6 +318,8 @@ String pickImage(JsonArray images, int target, String *smallest = nullptr) {
 bool parsePlayer(const String &body, PlayerState &out) {
     JsonDocument filter;
     filter["is_playing"] = true;
+    filter["shuffle_state"] = true;
+    filter["repeat_state"] = true;
     filter["progress_ms"] = true;
     filter["device"]["volume_percent"] = true;
     filter["device"]["supports_volume"] = true;
@@ -348,6 +354,9 @@ bool parsePlayer(const String &body, PlayerState &out) {
     }
 
     out.playing = doc["is_playing"] | false;
+    out.shuffle = doc["shuffle_state"] | false;
+    const char *repeat = doc["repeat_state"] | "off";
+    out.repeat = strcmp(repeat, "track") == 0 ? REPEAT_TRACK : strcmp(repeat, "context") == 0 ? REPEAT_CONTEXT : REPEAT_OFF;
     out.progressMs = doc["progress_ms"] | 0;
     out.volume = doc["device"]["volume_percent"] | -1;
     out.volumeAllowed = doc["device"]["supports_volume"] | true;
@@ -367,6 +376,7 @@ bool parsePlayer(const String &body, PlayerState &out) {
     out.isrc = (const char *)(it["external_ids"]["isrc"] | "");
 
     if (strcmp(it["type"] | "", "episode") == 0) {
+        out.isEpisode = true;
         out.artist = (const char *)(it["show"]["name"] | "");
         out.releaseDate = (const char *)(it["release_date"] | "");
         out.artUrl = pickImage(it["images"], g_config.artSize, &out.artUrlSmall);
@@ -445,6 +455,32 @@ bool downloadArt(const String &url) {
     return ok;
 }
 
+// Looks up whether the track is in Liked Songs (once per track; episodes are skipped). Uses the generic
+// library endpoints: Spotify removed /me/tracks for Development Mode apps in February 2026.
+void checkLiked(const PlayerState &s) {
+    likedForId = s.trackId;
+    likedValue = -1;
+    if (s.isEpisode || s.trackId.isEmpty() || likeNeedsLogin) return;
+    HttpResult r = apiCall("GET", "/me/library/contains?uris=spotify%3Atrack%3A" + s.trackId);
+    if (r.code == 200) {
+        JsonDocument doc;
+        if (!deserializeJson(doc, r.body) && doc.is<JsonArray>()) likedValue = doc[0] ? 1 : 0;
+    } else if (r.code == 403) {
+        likeNeedsLogin = true;
+    } else if (r.code == 429) {
+        likedForId = "";  // try again on a later poll
+        return;
+    } else {
+        app_log(LL_WARN, "Liked check failed: HTTP %d", r.code);
+    }
+    xSemaphoreTake(stateLock, portMAX_DELAY);
+    if (shared.trackId == s.trackId) {
+        shared.liked = likedValue;
+        shared.likeNeedsLogin = likeNeedsLogin;
+    }
+    xSemaphoreGive(stateLock);
+}
+
 void pollPlayer() {
     uint32_t t0 = millis();
     HttpResult r = apiCall("GET", "/me/player?additional_types=track,episode");
@@ -462,9 +498,12 @@ void pollPlayer() {
         }
         s.stamp = millis();
         if (s.deviceName == volumeRefusedBy) s.volumeAllowed = false;
+        s.likeNeedsLogin = likeNeedsLogin;
+        if (s.trackId == likedForId) s.liked = likedValue;
         xSemaphoreTake(stateLock, portMAX_DELAY);
         shared = s;
         xSemaphoreGive(stateLock);
+        if (s.trackId != likedForId) checkLiked(s);
         backoffStep = 0;
         app_log(LL_DEBUG, "Now: %s - %s (%s)", s.artist.c_str(), s.title.c_str(), s.playing ? "playing" : "paused");
 
@@ -705,6 +744,27 @@ void runCommand(const CmdMsg &msg) {
     case CMD_SEEK:
         r = apiCall("PUT", "/me/player/seek?position_ms=" + String(strtoul(msg.arg, nullptr, 10)));
         break;
+    case CMD_SHUFFLE:
+        r = apiCall("PUT", String("/me/player/shuffle?state=") + (snap.shuffle ? "false" : "true"));
+        break;
+    case CMD_REPEAT: {
+        static const char *const MODES[] = {"off", "context", "track"};
+        r = apiCall("PUT", String("/me/player/repeat?state=") + MODES[(snap.repeat + 1) % 3]);
+        break;
+    }
+    case CMD_LIKE:
+        if (snap.isEpisode || snap.trackId.isEmpty() || snap.liked < 0) return;
+        r = apiCall(snap.liked ? "DELETE" : "PUT", "/me/library?uris=spotify%3Atrack%3A" + snap.trackId);
+        if (r.code == 403) {
+            likeNeedsLogin = true;
+            xSemaphoreTake(stateLock, portMAX_DELAY);
+            shared.likeNeedsLogin = true;
+            shared.liked = -1;
+            xSemaphoreGive(stateLock);
+            setMessage(LIKE_NEEDS_LOGIN);
+            return;
+        }
+        break;
     case CMD_PLAY_CONTEXT: {
         JsonDocument body;
         body["context_uri"] = String("spotify:playlist:") + msg.arg;
@@ -720,6 +780,12 @@ void runCommand(const CmdMsg &msg) {
     if (r.code >= 200 && r.code < 300) {
         xSemaphoreTake(stateLock, portMAX_DELAY);
         if (msg.cmd == CMD_PLAY_PAUSE) shared.playing = !snap.playing;
+        if (msg.cmd == CMD_SHUFFLE) shared.shuffle = !snap.shuffle;
+        if (msg.cmd == CMD_REPEAT) shared.repeat = (RepeatMode)((snap.repeat + 1) % 3);
+        if (msg.cmd == CMD_LIKE && shared.trackId == snap.trackId) {
+            shared.liked = snap.liked ? 0 : 1;
+            likedValue = shared.liked;
+        }
         if (msg.cmd == CMD_VOL_UP || msg.cmd == CMD_VOL_DOWN) shared.volume = newVolume;
         if (msg.cmd == CMD_SEEK) {
             shared.progressMs = strtoul(msg.arg, nullptr, 10);
@@ -792,6 +858,8 @@ bool spotify_exchange_code(const String &code, const String &verifier, String &e
     bool ok = r.code == 200 && storeTokens(r.body);
     if (ok) {
         authLost = false;
+        likeNeedsLogin = false;
+        likedForId = "";
         backoffStep = 0;
         backoffUntil = millis();
         lastArtUrl = "";

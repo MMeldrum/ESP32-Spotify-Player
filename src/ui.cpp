@@ -110,7 +110,18 @@ constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
 lv_obj_t *controlsPanel;
 lv_obj_t *textBox;
 // How far the track text slides down when the controls are hidden: to just above the screen's bottom edge.
-constexpr int TEXT_DROP = S(66);
+// Square screens have room for a second row of controls (shuffle, like, repeat) above the progress bar.
+constexpr bool EXTRA_ROW = EXTRA_H > 0;
+constexpr int ROW_OFF = EXTRA_ROW ? S(28) : 0;
+constexpr int PANEL_H = S(64) + ROW_OFF;
+constexpr int PANEL_Y = SCREEN_H - S(6) - PANEL_H;
+constexpr int TEXT_DROP = PANEL_H + S(2);
+lv_obj_t *btnShuffle = nullptr;
+lv_obj_t *btnLike = nullptr;
+lv_obj_t *btnRepeat = nullptr;
+bool shownShuffle = false;
+RepeatMode shownRepeat = REPEAT_OFF;
+int8_t shownLiked = -1;
 lv_obj_t *wakeCatcher;
 bool controlsShown = true;
 bool bgVisible = false;
@@ -225,6 +236,24 @@ lv_obj_t *makeButtonLabel(lv_obj_t *btn, const char *text) {
     return lbl;
 }
 
+void setToggleLabel(lv_obj_t *btn, const char *text, lv_color_t color, lv_opa_t opa) {
+    lv_obj_t *lbl = lv_obj_get_child(btn, 0);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_color(lbl, color, 0);
+    lv_obj_set_style_text_opa(lbl, opa, 0);
+}
+
+// Shuffle, like and repeat light up in the album colour when on.
+void refreshExtraRow() {
+    if (!btnShuffle) return;
+    setToggleLabel(btnShuffle, LV_SYMBOL_SHUFFLE, shownShuffle ? curAccent : TEXT_MAIN, shownShuffle ? LV_OPA_COVER : LV_OPA_60);
+    setToggleLabel(btnRepeat, shownRepeat == REPEAT_TRACK ? LV_SYMBOL_LOOP " 1" : LV_SYMBOL_LOOP,
+                   shownRepeat != REPEAT_OFF ? curAccent : TEXT_MAIN, shownRepeat != REPEAT_OFF ? LV_OPA_COVER : LV_OPA_60);
+    // Filled heart when liked, outline when not, faint while unknown.
+    setToggleLabel(btnLike, shownLiked == 1 ? "\xE2\x99\xA5" : "\xE2\x99\xA1", shownLiked == 1 ? curAccent : TEXT_MAIN,
+                   shownLiked < 0 ? LV_OPA_30 : shownLiked ? LV_OPA_COVER : LV_OPA_60);
+}
+
 void applyTheme(lv_color_t accent, lv_color_t tint) {
     curAccent = accent;
     if (ledArmed) led_set_color(lv_color_to32(accent) & 0xFFFFFF);
@@ -232,6 +261,7 @@ void applyTheme(lv_color_t accent, lv_color_t tint) {
     lv_obj_set_style_bg_color(barProgress, accent, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(btnPlay, accent, 0);
     lv_obj_set_style_text_color(lblVolume, accent, 0);
+    refreshExtraRow();
 }
 
 void execOpa(void *obj, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)obj, v, 0); }
@@ -477,7 +507,27 @@ void onButton(lv_event_t *e) {
         ui_update_player(lastState);
         return;
     }
-    if (cmd == CMD_PLAY_PAUSE) {
+    if (cmd == CMD_LIKE && lastState.active && shownLiked < 0) {
+        if (lastState.likeNeedsLogin || lastState.isEpisode) {
+            tempMessage = lastState.isEpisode ? "Podcast episodes can't be liked here" : LIKE_NEEDS_LOGIN;
+            tempMessageUntil = millis() + 4000;
+            ui_update_player(lastState);
+        }
+        return;
+    }
+    if (cmd == CMD_SHUFFLE) {
+        shownShuffle = !shownShuffle;
+        optimisticUntil = millis() + OPTIMISTIC_MS;
+        refreshExtraRow();
+    } else if (cmd == CMD_REPEAT) {
+        shownRepeat = (RepeatMode)((shownRepeat + 1) % 3);
+        optimisticUntil = millis() + OPTIMISTIC_MS;
+        refreshExtraRow();
+    } else if (cmd == CMD_LIKE) {
+        shownLiked = shownLiked ? 0 : 1;
+        optimisticUntil = millis() + OPTIMISTIC_MS;
+        refreshExtraRow();
+    } else if (cmd == CMD_PLAY_PAUSE) {
         shownPlaying = !shownPlaying;
         setPlayIcon();
         optimisticUntil = millis() + OPTIMISTIC_MS;
@@ -490,7 +540,7 @@ void onButton(lv_event_t *e) {
 }
 
 lv_obj_t *makeControl(lv_obj_t *parent, int x, int w, SpotifyCmd cmd, const char *text) {
-    lv_obj_t *btn = makeGlassButton(parent, S(x), S(26), S(w), S(34), onButton, (void *)(uintptr_t)cmd);
+    lv_obj_t *btn = makeGlassButton(parent, S(x), S(26) + ROW_OFF, S(w), S(34), onButton, (void *)(uintptr_t)cmd);
     makeButtonLabel(btn, text);
     return btn;
 }
@@ -714,7 +764,7 @@ void buildPlayerUi() {
 
     // The text sits in a column anchored just above the controls: any message, the title (up to two lines),
     // then the artist. Empty lines are hidden, so the text always ends right above the controls.
-    const int controlsY = SCREEN_H - S(70);
+    const int controlsY = PANEL_Y;
     textBox = lv_obj_create(screenPlayer);
     lv_obj_remove_style_all(textBox);
     lv_obj_set_pos(textBox, S(16), S(38));
@@ -735,15 +785,27 @@ void buildPlayerUi() {
         lv_obj_add_event_cb(lbl, onTrackTap, LV_EVENT_CLICKED, nullptr);
     }
 
-    lv_obj_t *panel = makeGlass(screenPlayer, S(10), SCREEN_H - S(70), S(300), S(64), S(24), LV_OPA_20);
+    lv_obj_t *panel = makeGlass(screenPlayer, S(10), PANEL_Y, S(300), PANEL_H, S(24), LV_OPA_20);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
     controlsPanel = panel;
 
-    lblElapsed = makeLabel(panel, S(12), S(3), S(36), TEXT_DIM, &FONT_UI_SMALL);
+    if (EXTRA_ROW) {
+        auto makeToggle = [&](int x, SpotifyCmd cmd) {
+            lv_obj_t *btn = makeGlassButton(panel, S(x), S(4), S(50), S(24), onButton, (void *)(uintptr_t)cmd);
+            lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, 0);
+            makeButtonLabel(btn, "");
+            return btn;
+        };
+        btnShuffle = makeToggle(65, CMD_SHUFFLE);
+        btnLike = makeToggle(125, CMD_LIKE);
+        btnRepeat = makeToggle(185, CMD_REPEAT);
+    }
+
+    lblElapsed = makeLabel(panel, S(12), S(3) + ROW_OFF, S(36), TEXT_DIM, &FONT_UI_SMALL);
     lv_label_set_text(lblElapsed, "0:00");
 
     barProgress = lv_bar_create(panel);
-    lv_obj_set_pos(barProgress, S(52), S(10));
+    lv_obj_set_pos(barProgress, S(52), S(10) + ROW_OFF);
     lv_obj_set_size(barProgress, S(196), S(8));
     lv_bar_set_range(barProgress, 0, 1000);
     lv_obj_set_style_bg_color(barProgress, lv_color_white(), LV_PART_MAIN);
@@ -751,7 +813,7 @@ void buildPlayerUi() {
     lv_obj_set_style_bg_color(barProgress, DEFAULT_ACCENT, LV_PART_INDICATOR);
 
     lv_obj_t *seekArea = lv_obj_create(panel);
-    lv_obj_set_pos(seekArea, S(44), 0);
+    lv_obj_set_pos(seekArea, S(44), ROW_OFF);
     lv_obj_set_size(seekArea, S(212), S(26));
     lv_obj_set_style_bg_opa(seekArea, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(seekArea, 0, 0);
@@ -760,7 +822,7 @@ void buildPlayerUi() {
     lv_obj_add_flag(seekArea, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(seekArea, onSeekTap, LV_EVENT_CLICKED, nullptr);
 
-    lblTotal = makeLabel(panel, S(252), S(3), S(36), TEXT_DIM, &FONT_UI_SMALL);
+    lblTotal = makeLabel(panel, S(252), S(3) + ROW_OFF, S(36), TEXT_DIM, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(lblTotal, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(lblTotal, "0:00");
 
@@ -915,6 +977,13 @@ void ui_update_player(const PlayerState &s) {
         if (s.volume != shownVolume) {
             shownVolume = s.volume;
             setVolumeLabel();
+        }
+        int8_t liked = s.active ? s.liked : -1;
+        if (s.shuffle != shownShuffle || s.repeat != shownRepeat || liked != shownLiked) {
+            shownShuffle = s.shuffle;
+            shownRepeat = s.repeat;
+            shownLiked = liked;
+            refreshExtraRow();
         }
     }
     if (s.trackId != shownTrackId) {
