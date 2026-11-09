@@ -2,6 +2,7 @@
 #include "app_log.h"
 #include "board.h"
 #include "config.h"
+#include "display.h"
 #include "led.h"
 #include <LittleFS.h>
 #include <TJpg_Decoder.h>
@@ -102,6 +103,8 @@ constexpr size_t MAX_LOADED_PLAYLISTS = 100;
 // them back. The black layer over the album art is lighter while they are hidden.
 constexpr uint32_t CONTROLS_HIDE_MS = 5000;
 constexpr uint32_t FADE_MS = 400;
+// The backlight switches off after this long without touches; a touch or a new track switches it back on.
+constexpr uint32_t SCREEN_OFF_MS = 60000;
 constexpr lv_opa_t DIM_WITH_CONTROLS = LV_OPA_40;
 constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
 lv_obj_t *controlsPanel;
@@ -285,7 +288,16 @@ void setControlsShown(bool shown, uint32_t time) {
 
 void onWakeTap(lv_event_t *) { setControlsShown(true, FADE_MS); }
 
+// A touch that switched the screen on also brings the controls back, so the next tap can use them.
+void onTouchWake() {
+    if (lv_scr_act() == screenPlayer) setControlsShown(true, 0);
+}
+
 void controlsTimerCb(lv_timer_t *) {
+    // The setup screen stays lit: it shows what to connect to.
+    if (display_screen_on() && lv_scr_act() != screenSetup && lv_disp_get_inactive_time(nullptr) >= SCREEN_OFF_MS) {
+        display_set_screen_on(false);
+    }
     if (lv_scr_act() != screenPlayer) return;
     bool playing = lastState.active && shownPlaying;
     if (!controlsShown) {
@@ -773,6 +785,7 @@ void buildPlayerUi() {
     lv_obj_add_event_cb(wakeCatcher, onWakeTap, LV_EVENT_PRESSED, nullptr);
     lv_obj_add_event_cb(wakeCatcher, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
     lv_timer_create(controlsTimerCb, 250, nullptr);
+    display_on_touch_wake(onTouchWake);
 
     setVolumeLabel();
     applyTheme(DEFAULT_ACCENT, DEFAULT_TINT);
@@ -831,6 +844,7 @@ void ui_set_reset_handler(void (*handler)()) {
 }
 
 void show_setup_screen() {
+    display_set_screen_on(true);
     ledArmed = false;
     led_set_color(0);
     lv_scr_load(screenSetup);
@@ -900,6 +914,11 @@ void ui_update_player(const PlayerState &s) {
     }
     if (s.trackId != shownTrackId) {
         shownTrackId = s.trackId;
+        // A new track counts as activity: the screen comes on and stays on for another minute.
+        if (s.trackId.length()) {
+            lv_disp_trig_activity(nullptr);
+            display_set_screen_on(true);
+        }
         if (s.artUrl.isEmpty()) {
             setBackgroundVisible(false);
             applyTheme(DEFAULT_ACCENT, DEFAULT_TINT);

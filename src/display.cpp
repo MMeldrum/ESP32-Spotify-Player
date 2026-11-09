@@ -111,6 +111,8 @@ void panelInit() {
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
 }
 
+void setBacklight(bool on) { digitalWrite(PIN_BL, on ? HIGH : LOW); }
+
 uint8_t touchAddr = 0;
 
 bool gt911Write(uint16_t reg, const uint8_t *data, size_t len) {
@@ -157,7 +159,7 @@ void flushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *pixels) {
     lv_disp_flush_ready(drv);
 }
 
-void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
+void readTouch(lv_indev_data_t *data) {
     static int16_t lastX = 0, lastY = 0;
     static bool lastPressed = false;
     data->point.x = lastX;
@@ -207,6 +209,8 @@ constexpr int TS_MOSI = 32;
 constexpr int TS_MISO = 39;
 
 TFT_eSPI tft;
+
+void setBacklight(bool on) { digitalWrite(TFT_BL, on ? TFT_BACKLIGHT_ON : !TFT_BACKLIGHT_ON); }
 SPIClass touchSPI(VSPI);
 XPT2046_Touchscreen touch(TS_CS, TS_IRQ);
 
@@ -222,7 +226,7 @@ void flushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *pixels) {
     lv_disp_flush_ready(drv);
 }
 
-void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
+void readTouch(lv_indev_data_t *data) {
     if (touch.tirqTouched() && touch.touched()) {
         TS_Point p = touch.getPoint();
         data->point.x = constrain(map(p.x, 200, 3700, 0, SCREEN_W - 1), 0, SCREEN_W - 1);
@@ -247,7 +251,37 @@ void hardwareInit() {
 
 #endif
 
+bool screenOn = true;
+bool swallowTouch = false;
+void (*touchWakeCb)() = nullptr;
+
+void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
+    readTouch(data);
+    bool pressed = data->state == LV_INDEV_STATE_PR;
+    if (!screenOn && pressed) {
+        display_set_screen_on(true);
+        swallowTouch = true;
+        lv_disp_trig_activity(nullptr);
+        if (touchWakeCb) touchWakeCb();
+    }
+    // Hide the waking touch from LVGL until the finger lifts, so it does not press anything.
+    if (swallowTouch) {
+        if (!pressed) swallowTouch = false;
+        data->state = LV_INDEV_STATE_REL;
+    }
+}
+
 } // namespace
+
+void display_set_screen_on(bool on) {
+    if (on == screenOn) return;
+    screenOn = on;
+    setBacklight(on);
+}
+
+bool display_screen_on() { return screenOn; }
+
+void display_on_touch_wake(void (*callback)()) { touchWakeCb = callback; }
 
 void display_init() {
     lv_init();
