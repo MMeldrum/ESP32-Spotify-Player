@@ -8,7 +8,7 @@
 
 ![The RGB LED on the back of the board changes colour with the album art, shown with a dark and a light cover](images/Player-Dark-Light.jpeg)
 
-A standalone Spotify remote with a touch screen for the **ESP32-2432S028R** ("Cheap Yellow Display", CYD). It shows what is playing on any of your Spotify devices and lets you control it: play/pause, skip, seek, volume, switch device and start playlists. The album art is used as a blurred full-screen background.
+A standalone Spotify remote with a touch screen for the **ESP32-2432S028R** ("Cheap Yellow Display", CYD) and the **ESP32-4848S040** (4.0" 480x480). It shows what is playing on any of your Spotify devices and lets you control it: play/pause, skip, seek, volume, switch device and start playlists. The album art is used as a blurred full-screen background.
 
 The ESP32 does not play audio itself. It controls an existing Spotify Connect device (phone, computer, speaker) through the Spotify Web API.
 
@@ -48,6 +48,24 @@ The pin configuration is set with build flags in [platformio.ini](platformio.ini
 | TFT MOSI / MISO / SCLK / CS / DC | 13 / 12 / 14 / 15 / 2 |
 | TFT backlight | 21 |
 | Touch CLK / MOSI / MISO / CS / IRQ | 25 / 32 / 39 / 33 / 36 |
+
+### ESP32-4848S040 (4.0" 480x480)
+
+Also supported: the Guition **ESP32-4848S040** (ESP32-S3, 16 MB flash, 8 MB PSRAM, 4.0" 480x480 ST7701S RGB panel, GT911 capacitive touch). Build the `esp32-4848s040` PlatformIO environment, or flash `firmware-esp32-4848s040-merged.bin`. The same UI is scaled up 1.5x with larger fonts; the extra height of the square screen gives the track title more room.
+
+| Function | GPIO |
+|---|---|
+| ST7701S init SPI CS / SCK / SDA | 39 / 48 / 47 |
+| RGB DE / VSYNC / HSYNC / PCLK | 18 / 17 / 16 / 21 |
+| RGB R0-R4 / G0-G5 / B0-B4 | 11,12,13,14,0 / 8,20,3,46,9,10 / 4,5,6,7,15 |
+| Backlight | 38 |
+| Touch (GT911) SDA / SCL | 19 / 45 |
+
+Differences from the CYD:
+
+- There is no RGB LED, so the LED setting is hidden in the web interface.
+- GPIO 0 (BOOT) is a data line of the display, so the BOOT-button reset is not available. Instead, **Forget Wi-Fi** in the device info popup (long press) also removes the web password.
+- The display is set up with `st7701_type9_init_operations` from the Arduino_GFX library. If the screen stays black or shows wrong colours, some panel batches need `st7701_type1_init_operations` instead (in [src/display.cpp](src/display.cpp)).
 
 Board variants: some CYD boards use an ST7789 display instead (often the ones with two USB ports) and may need a different driver and display inversion (`ST7789_DRIVER`, `TFT_INVERSION_ON`). If colours look inverted on an ILI9341 board, add `-DTFT_INVERSION_ON` to `build_flags`. Touch orientation and calibration are in [src/display.cpp](src/display.cpp).
 
@@ -96,7 +114,8 @@ esptool.py --chip esp32 --baud 460800 write_flash 0x0 firmware-merged.bin
 pip install platformio
 git clone <this repository>
 cd "ESP32 Spotify Player"
-python -m platformio run -t upload
+python -m platformio run -e cyd -t upload             # ESP32-2432S028R (CYD)
+python -m platformio run -e esp32-4848s040 -t upload  # ESP32-4848S040
 ```
 
 PlatformIO downloads the toolchain and all libraries on the first build. Use `python -m platformio device monitor` for the serial console (115200 baud).
@@ -112,7 +131,9 @@ python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 merge_bin -
   0x10000 .pio/build/cyd/firmware.bin
 ```
 
-The firmware uses the `huge_app.csv` partition table (3 MB app, ~0.9 MB LittleFS, no OTA).
+For the ESP32-4848S040 use `--chip esp32s3 merge_bin --flash_mode keep --flash_freq keep --flash_size 16MB` with the bootloader at `0x0` and the files from `.pio/build/esp32-4848s040/` (see the workflow for the full command); flash it with `esptool.py --chip esp32s3 write_flash 0x0 firmware-esp32-4848s040-merged.bin`.
+
+The CYD firmware uses the `huge_app.csv` partition table (3 MB app, ~0.9 MB LittleFS, no OTA).
 
 ## Configuration
 
@@ -133,7 +154,7 @@ Manage the saved networks on the **Wi-Fi** tab of the web interface, in setup mo
 If the current network has no working internet, the screen shows "No internet. Long-press the screen to forget this Wi-Fi." and the device also starts the `Spotify-Player-Setup` access point next to the normal connection after about 2 minutes. To leave the network you can:
 
 - **On the device:** long-press the screen to open the device info popup and tap **Forget Wi-Fi** twice (the second tap confirms). This forgets only the connected network; the device then restarts and joins another saved network, or starts setup mode if there is none.
-- **BOOT button:** hold the BOOT button on the back of the board for 3 seconds. This forgets the connected network (as above) **and removes the web password**, so it is also the way back in when you forgot the password.
+- **BOOT button (CYD only):** hold the BOOT button on the back of the board for 3 seconds. This forgets the connected network (as above) **and removes the web password**, so it is also the way back in when you forgot the password.
 - **Web interface:** on the Wi-Fi tab use **Forget & disconnect** next to the connected network, or **Forget all & restart in setup mode**.
 
 Forgetting a network removes only Wi-Fi credentials. Your Spotify login, pins and settings are kept.

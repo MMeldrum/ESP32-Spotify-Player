@@ -1,5 +1,6 @@
 #include "web_portal.h"
 #include "app_log.h"
+#include "board.h"
 #include "config.h"
 #include "led.h"
 #include "spotify.h"
@@ -119,7 +120,7 @@ const char INDEX_BODY[] PROGMEM = R"rawliteral(
 <div class="msg" id="art-msg"></div>
 </div>
 
-<div class="section" data-tab="spotify" hidden>
+<div class="section" data-tab="spotify" id="led-section" hidden>
 <h3>RGB LED</h3>
 <span class="hint">The LED on the back of the board follows the colour of the album art. Set 0 to turn it off.</span>
 <label for="led">Brightness: <span id="led-val"></span>%</label>
@@ -188,11 +189,12 @@ const msg=t=>$('msg').textContent=t;
 
 fetch('/status').then(r=>r.json()).then(s=>{
   $('resolution').value=s.art;
+  if(!s.has_led){$('led-section').removeAttribute('data-tab');$('led-section').hidden=true;}
   $('led').value=s.led;
   $('led-val').textContent=s.led;
   $('client_id').value=s.client_id;
   $('pw-hint').textContent=s.protected
-    ?'This device is password protected. Your browser asks for it; the username can be anything, for example admin. Forgot it? Hold the BOOT button on the board for 3 seconds.'
+    ?'This device is password protected. Your browser asks for it; the username can be anything, for example admin. Forgot it? '+(s.boot_button?'Hold the BOOT button on the board for 3 seconds.':'Long-press the screen and tap Forget Wi-Fi twice.')
     :'No password is set: anyone on your network can change these settings.';
   $('pw-clear').hidden=!s.protected;
   $('pw1').required=true;
@@ -630,6 +632,8 @@ void handleStatus(AsyncWebServerRequest *request) {
     doc["spotify"] = g_config.refreshToken.length() > 0;
     doc["art"] = g_config.artSize;
     doc["led"] = g_config.ledBrightness;
+    doc["has_led"] = (bool)BOARD_HAS_RGB_LED;
+    doc["boot_button"] = (bool)BOARD_HAS_BOOT_BUTTON;
     doc["client_id"] = g_config.clientId;
     doc["protected"] = config_web_password_set();
     doc["ssid"] = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String();

@@ -79,6 +79,8 @@ void spotify_select(ListKind kind, const String &id);
 void spotify_get_list(ListKind kind, ListData &out);
 void spotify_get_state(PlayerState &out);
 bool spotify_art_begin_read();
+// The downloaded art between begin_read and end_read, or nullptr when it is in the SPOTIFY_ART_PATH file.
+const uint8_t *spotify_art_data(size_t &size);
 void spotify_art_end_read();
 bool spotify_auth_lost();
 uint32_t spotify_last_poll_ms();

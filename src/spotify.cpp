@@ -1,5 +1,6 @@
 #include "spotify.h"
 #include "app_log.h"
+#include "board.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
@@ -46,6 +47,43 @@ uint32_t backoffUntil = 0;
 uint8_t backoffStep = 0;
 String lastArtUrl;
 uint8_t artFailures = 0;
+
+// A growable PSRAM buffer that HTTPClient writes into and ArduinoJson reads from.
+class MemStream : public Stream {
+public:
+    size_t write(uint8_t c) override { return write(&c, 1); }
+    size_t write(const uint8_t *data, size_t size) override {
+        if (len + size > cap) {
+            size_t newCap = max<size_t>(cap ? cap * 2 : 32 * 1024, len + size);
+            auto *grown = (uint8_t *)heap_caps_realloc(buf, newCap, MALLOC_CAP_SPIRAM);
+            if (!grown) return 0;
+            buf = grown;
+            cap = newCap;
+        }
+        memcpy(buf + len, data, size);
+        len += size;
+        return size;
+    }
+    int available() override { return len - pos; }
+    int read() override { return pos < len ? buf[pos++] : -1; }
+    int peek() override { return pos < len ? buf[pos] : -1; }
+    void flush() override {}
+    void clear() { len = pos = 0; }
+    void rewind() { pos = 0; }
+    const uint8_t *data() const { return buf; }
+    size_t size() const { return len; }
+
+private:
+    uint8_t *buf = nullptr;
+    size_t cap = 0;
+    size_t len = 0;
+    size_t pos = 0;
+};
+
+#if BOARD_TEMP_IN_PSRAM
+MemStream listTemp;
+MemStream artTemp;
+#endif
 
 struct HttpResult {
     int code = -1;
@@ -121,12 +159,17 @@ HttpResult httpOnce(const char *method, const String &url, const char *contentTy
     r.code = http.sendRequest(method, (uint8_t *)body.c_str(), body.length());
     // Without this guard getString() blocks until the server closes a 204 response.
     if (r.code == 200 && savePath) {
+#if BOARD_TEMP_IN_PSRAM
+        listTemp.clear();
+        r.savedBytes = http.writeToStream(&listTemp);
+#else
         File file = LittleFS.open(savePath, "w");
         if (file) {
             r.savedBytes = http.writeToStream(&file);
             file.close();
         }
         if (r.savedBytes <= 0) LittleFS.remove(savePath);
+#endif
     } else if (r.code > 0 && r.code != 204 && http.getSize() != 0) {
         r.body = http.getString();
     }
@@ -368,6 +411,12 @@ bool downloadArt(const String &url) {
         } else if (size > (int)MAX_ART_BYTES) {
             app_log(LL_WARN, "Art: image too large (%d bytes)", size);
         } else {
+#if BOARD_TEMP_IN_PSRAM
+            artTemp.clear();
+            int written = http.writeToStream(&artTemp);
+            ok = written > 0;
+            if (!ok) app_log(LL_WARN, "Art: download failed (%d)", written);
+#else
             File file = LittleFS.open(SPOTIFY_ART_PATH, "w");
             if (!file) {
                 app_log(LL_WARN, "Art: cannot open temp file");
@@ -380,6 +429,7 @@ bool downloadArt(const String &url) {
                     LittleFS.remove(SPOTIFY_ART_PATH);
                 }
             }
+#endif
         }
         http.end();
     } else {
@@ -468,6 +518,21 @@ int listKindOfCmd(uint8_t cmd) {
     }
 }
 
+// Parses a response that apiCall saved with LIST_TMP_PATH, then discards it.
+DeserializationError parseSaved(JsonDocument &doc, JsonDocument &filter) {
+#if BOARD_TEMP_IN_PSRAM
+    listTemp.rewind();
+    DeserializationError err = deserializeJson(doc, listTemp, DeserializationOption::Filter(filter));
+    listTemp.clear();
+#else
+    File file = LittleFS.open(LIST_TMP_PATH, "r");
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+    LittleFS.remove(LIST_TMP_PATH);
+#endif
+    return err;
+}
+
 void fetchList(ListKind kind, uint32_t offset) {
     bool playlists = kind != LIST_DEVICES;
     // Playlist pages are too large for one RAM buffer, so they are streamed to a temp file.
@@ -492,10 +557,7 @@ void fetchList(ListKind kind, uint32_t offset) {
     JsonDocument doc;
     DeserializationError err;
     if (playlists) {
-        File file = LittleFS.open(LIST_TMP_PATH, "r");
-        err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
-        file.close();
-        LittleFS.remove(LIST_TMP_PATH);
+        err = parseSaved(doc, filter);
     } else {
         err = deserializeJson(doc, r.body, DeserializationOption::Filter(filter));
     }
@@ -554,10 +616,7 @@ void fetchSearch(uint32_t offset, const String &query) {
     filter["playlists"]["items"][0]["name"] = true;
     filter["playlists"]["items"][0]["owner"]["display_name"] = true;
     JsonDocument doc;
-    File file = LittleFS.open(LIST_TMP_PATH, "r");
-    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
-    file.close();
-    LittleFS.remove(LIST_TMP_PATH);
+    DeserializationError err = parseSaved(doc, filter);
     if (err) {
         app_log(LL_ERROR, "Search JSON error: %s", err.c_str());
         finishList(LIST_WEB_SEARCH, LIST_ERROR, "Unexpected response from Spotify", {}, offset);
@@ -808,9 +867,23 @@ bool spotify_art_begin_read() {
     return true;
 }
 
+const uint8_t *spotify_art_data(size_t &size) {
+#if BOARD_TEMP_IN_PSRAM
+    size = artTemp.size();
+    return artTemp.data();
+#else
+    size = 0;
+    return nullptr;
+#endif
+}
+
 void spotify_art_end_read() {
     artReady = false;
+#if BOARD_TEMP_IN_PSRAM
+    artTemp.clear();
+#else
     LittleFS.remove(SPOTIFY_ART_PATH);
+#endif
     xSemaphoreGive(artLock);
 }
 

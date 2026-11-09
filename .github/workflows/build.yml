@@ -23,23 +23,34 @@ jobs:
           pip install platformio
           pio run
 
-      - name: Create merged image
+      - name: Create merged images
         run: |
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)
-          python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 merge_bin -o firmware-merged.bin \
+          ESPTOOL=~/.platformio/packages/tool-esptoolpy/esptool.py
+          python $ESPTOOL --chip esp32 merge_bin -o firmware-merged.bin \
             --flash_mode dio --flash_freq 40m --flash_size 4MB \
             0x1000 .pio/build/cyd/bootloader.bin \
             0x8000 .pio/build/cyd/partitions.bin \
             0xe000 "$BOOT_APP0" \
             0x10000 .pio/build/cyd/firmware.bin
+          python $ESPTOOL --chip esp32s3 merge_bin -o firmware-esp32-4848s040-merged.bin \
+            --flash_mode keep --flash_freq keep --flash_size 16MB \
+            0x0 .pio/build/esp32-4848s040/bootloader.bin \
+            0x8000 .pio/build/esp32-4848s040/partitions.bin \
+            0xe000 "$BOOT_APP0" \
+            0x10000 .pio/build/esp32-4848s040/firmware.bin
 
       - uses: actions/upload-artifact@v5
         with:
           name: firmware-merged
-          path: firmware-merged.bin
+          path: |
+            firmware-merged.bin
+            firmware-esp32-4848s040-merged.bin
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: firmware-merged.bin
+          files: |
+            firmware-merged.bin
+            firmware-esp32-4848s040-merged.bin

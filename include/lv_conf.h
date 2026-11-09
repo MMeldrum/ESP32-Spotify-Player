@@ -8,7 +8,14 @@
 #define LV_COLOR_DEPTH 16
 #define LV_COLOR_16_SWAP 0
 
+#if defined(BOARD_ESP32_4848S040)
+// Internal RAM is needed by Wi-Fi and TLS, so the LVGL heap lives in PSRAM.
+#define LV_MEM_SIZE (256U * 1024U)
+#define LV_MEM_POOL_INCLUDE <esp32-hal-psram.h>
+#define LV_MEM_POOL_ALLOC ps_malloc
+#else
 #define LV_MEM_SIZE (30U * 1024U)
+#endif
 
 #define LV_TICK_CUSTOM 1
 #define LV_TICK_CUSTOM_INCLUDE <Arduino.h>
@@ -16,9 +23,16 @@
 
 #define LV_USE_LOG 0
 
+// Montserrat only supplies the LV_SYMBOL glyphs; the UI fonts in src/fonts fall back to it.
+#if defined(BOARD_ESP32_4848S040)
+#define LV_FONT_MONTSERRAT_22 1
+#define LV_FONT_MONTSERRAT_30 1
+#define LV_FONT_DEFAULT &lv_font_montserrat_22
+#else
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_20 1
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
+#endif
 
 #endif
 #endif

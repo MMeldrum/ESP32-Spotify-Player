@@ -1,22 +1,28 @@
 #include "ui.h"
 #include "app_log.h"
+#include "board.h"
 #include "config.h"
 #include "led.h"
 #include <LittleFS.h>
 #include <TJpg_Decoder.h>
 #include <lvgl.h>
 
-LV_FONT_DECLARE(font_ui_14)
-LV_FONT_DECLARE(font_ui_20)
+LV_FONT_DECLARE(FONT_UI_SMALL)
+LV_FONT_DECLARE(FONT_UI_LARGE)
 
 namespace {
 
-constexpr int SCREEN_W = 320;
-constexpr int SCREEN_H = 240;
-constexpr int BG_MAX_W = 120;
+// Layout values are designed for 320x240 and scaled to the board's screen.
+constexpr int S(int v) { return v * UI_SCALE_NUM / UI_SCALE_DEN; }
+// Height left over when the scaled layout is shorter than the screen (square panels).
+constexpr int EXTRA_H = SCREEN_H - S(240);
+constexpr int BG_MAX_W = S(120);
 constexpr int BG_MAX_H = (BG_MAX_W * SCREEN_H + SCREEN_W - 1) / SCREEN_W + 1;
 constexpr uint32_t OPTIMISTIC_MS = 2500;
-constexpr int LIST_ROWS = 5;
+constexpr int LIST_TOP = S(42);
+constexpr int LIST_ROW_PITCH = S(34);
+constexpr int LIST_FOOTER_Y = SCREEN_H - S(27);
+constexpr int LIST_ROWS = (LIST_FOOTER_Y - LIST_TOP) / LIST_ROW_PITCH;
 
 const lv_color_t DEFAULT_ACCENT = lv_color_hex(0x1DB954);
 const lv_color_t DEFAULT_TINT = lv_color_hex(0x1B1B3A);
@@ -122,7 +128,7 @@ String cleanText(const String &in, const char *fallback = "") {
         bool keep = cp == '\n';
         if (!keep && cp >= 0x20) {
             lv_font_glyph_dsc_t dsc;
-            keep = lv_font_get_glyph_dsc(&font_ui_14, &dsc, cp, 0);
+            keep = lv_font_get_glyph_dsc(&FONT_UI_SMALL, &dsc, cp, 0);
         }
         if (!keep) continue;
         if (pendingSpace) out += ' ';
@@ -174,7 +180,7 @@ void makeSingleLine(lv_obj_t *lbl, const lv_font_t *font) {
 }
 
 lv_obj_t *makeTextBlock(int y, int h, lv_color_t color, const lv_font_t *font) {
-    lv_obj_t *lbl = makeLabel(screenPlayer, 16, y, SCREEN_W - 32, color, font);
+    lv_obj_t *lbl = makeLabel(screenPlayer, S(16), y, SCREEN_W - S(32), color, font);
     lv_obj_set_height(lbl, h);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
@@ -193,7 +199,7 @@ lv_obj_t *makeGlassButton(lv_obj_t *parent, int x, int y, int w, int h, lv_event
 }
 
 lv_obj_t *makeButtonLabel(lv_obj_t *btn, const char *text) {
-    lv_obj_t *lbl = makeLabel(btn, 0, 0, 0, TEXT_MAIN, &font_ui_14);
+    lv_obj_t *lbl = makeLabel(btn, 0, 0, 0, TEXT_MAIN, &FONT_UI_SMALL);
     lv_label_set_text(lbl, text);
     lv_obj_center(lbl);
     return lbl;
@@ -248,27 +254,30 @@ void showPopup(const char *title, const String &body, const char *footer, bool w
     lv_obj_clear_flag(popup, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(popup, closePopup, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *card = makeGlass(popup, 12, 12, 296, 216, 22, LV_OPA_COVER);
+    const int cardW = SCREEN_W - S(24);
+    const int cardH = SCREEN_H - S(24);
+    const int textW = cardW - S(32);
+    lv_obj_t *card = makeGlass(popup, S(12), S(12), cardW, cardH, S(22), LV_OPA_COVER);
     lv_obj_set_style_bg_color(card, lv_color_hex(0x181822), 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *lblT = makeLabel(card, 16, 8, 264, curAccent, &font_ui_20);
-    makeSingleLine(lblT, &font_ui_20);
+    lv_obj_t *lblT = makeLabel(card, S(16), S(8), textW, curAccent, &FONT_UI_LARGE);
+    makeSingleLine(lblT, &FONT_UI_LARGE);
     lv_label_set_text(lblT, title);
 
-    lv_obj_t *lblB = makeLabel(card, 16, 36, 264, TEXT_MAIN, &font_ui_14);
-    lv_obj_set_height(lblB, 152);
+    lv_obj_t *lblB = makeLabel(card, S(16), S(36), textW, TEXT_MAIN, &FONT_UI_SMALL);
+    lv_obj_set_height(lblB, cardH - S(64));
     lv_label_set_long_mode(lblB, LV_LABEL_LONG_DOT);
     lv_label_set_text(lblB, body.c_str());
 
-    lv_obj_t *lblF = makeLabel(card, 16, 190, 264, TEXT_DIM, &font_ui_14);
-    makeSingleLine(lblF, &font_ui_14);
+    lv_obj_t *lblF = makeLabel(card, S(16), cardH - S(26), textW, TEXT_DIM, &FONT_UI_SMALL);
+    makeSingleLine(lblF, &FONT_UI_SMALL);
     lv_label_set_text(lblF, footer);
 
     if (withReset) {
-        lv_obj_set_height(lblB, 134);
-        lv_obj_set_width(lblF, 110);
-        lv_obj_t *btn = makeGlassButton(card, 140, 176, 140, 30, onResetTap, nullptr);
+        lv_obj_set_height(lblB, cardH - S(82));
+        lv_obj_set_width(lblF, S(110));
+        lv_obj_t *btn = makeGlassButton(card, cardW - S(156), cardH - S(40), S(140), S(30), onResetTap, nullptr);
         lv_obj_set_style_bg_color(btn, lv_color_hex(0xB3261E), 0);
         lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
         makeButtonLabel(btn, "Forget Wi-Fi");
@@ -316,20 +325,20 @@ void buildSetupUi() {
     styleScreen(screenSetup, DEFAULT_TINT);
     lv_obj_add_event_cb(screenSetup, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
 
-    lv_obj_t *title = makeLabel(screenSetup, 0, 0, 0, DEFAULT_ACCENT, &font_ui_20);
+    lv_obj_t *title = makeLabel(screenSetup, 0, 0, 0, DEFAULT_ACCENT, &FONT_UI_LARGE);
     lv_label_set_text(title, "Device Setup");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, S(16));
 
-    lv_obj_t *card = makeGlass(screenSetup, 16, 56, 288, 168, 22);
+    lv_obj_t *card = makeGlass(screenSetup, S(16), S(56), SCREEN_W - S(32), SCREEN_H - S(72), S(22));
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
 
-    lblSetupInstructions = makeLabel(card, 0, 0, 256, TEXT_MAIN, &font_ui_14);
+    lblSetupInstructions = makeLabel(card, 0, 0, SCREEN_W - S(64), TEXT_MAIN, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(lblSetupInstructions, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lblSetupInstructions, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_align(lblSetupInstructions, LV_ALIGN_TOP_MID, 0, S(18) + EXTRA_H / 4);
 
-    lblSetupIp = makeLabel(card, 0, 0, 256, DEFAULT_ACCENT, &font_ui_20);
+    lblSetupIp = makeLabel(card, 0, 0, SCREEN_W - S(64), DEFAULT_ACCENT, &FONT_UI_LARGE);
     lv_obj_set_style_text_align(lblSetupIp, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lblSetupIp, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_obj_align(lblSetupIp, LV_ALIGN_BOTTOM_MID, 0, -S(18) - EXTRA_H / 4);
 }
 
 void setPlayIcon() {
@@ -380,7 +389,7 @@ void onButton(lv_event_t *e) {
 }
 
 lv_obj_t *makeControl(lv_obj_t *parent, int x, int w, SpotifyCmd cmd, const char *text) {
-    lv_obj_t *btn = makeGlassButton(parent, x, 26, w, 34, onButton, (void *)(uintptr_t)cmd);
+    lv_obj_t *btn = makeGlassButton(parent, S(x), S(26), S(w), S(34), onButton, (void *)(uintptr_t)cmd);
     makeButtonLabel(btn, text);
     return btn;
 }
@@ -529,40 +538,40 @@ void buildListUi() {
     screenList = lv_obj_create(nullptr);
     styleScreen(screenList, DEFAULT_TINT);
 
-    lv_obj_t *back = makeGlassButton(screenList, 10, 6, 44, 28, onBack, nullptr);
+    lv_obj_t *back = makeGlassButton(screenList, S(10), S(6), S(44), S(28), onBack, nullptr);
     makeButtonLabel(back, LV_SYMBOL_LEFT);
 
-    lblListTitle = makeLabel(screenList, 62, 9, 180, TEXT_MAIN, &font_ui_20);
-    makeSingleLine(lblListTitle, &font_ui_20);
-    lv_obj_t *brand = makeLabel(screenList, 250, 12, 60, DEFAULT_ACCENT, &font_ui_14);
+    lblListTitle = makeLabel(screenList, S(62), S(9), SCREEN_W - S(140), TEXT_MAIN, &FONT_UI_LARGE);
+    makeSingleLine(lblListTitle, &FONT_UI_LARGE);
+    lv_obj_t *brand = makeLabel(screenList, SCREEN_W - S(70), S(12), S(60), DEFAULT_ACCENT, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(brand, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(brand, "Spotify");
 
     for (int i = 0; i < LIST_ROWS; i++) {
         lv_obj_t *btn = lv_btn_create(screenList);
-        lv_obj_set_pos(btn, 12, 42 + i * 34);
-        lv_obj_set_size(btn, 296, 32);
-        applyGlass(btn, 14, LV_OPA_10);
+        lv_obj_set_pos(btn, S(12), LIST_TOP + i * LIST_ROW_PITCH);
+        lv_obj_set_size(btn, SCREEN_W - S(24), S(32));
+        applyGlass(btn, S(14), LV_OPA_10);
         lv_obj_set_style_bg_opa(btn, LV_OPA_50, LV_STATE_PRESSED);
         lv_obj_add_event_cb(btn, onRowTap, LV_EVENT_CLICKED, (void *)(uintptr_t)i);
         lv_obj_add_flag(btn, LV_OBJ_FLAG_HIDDEN);
 
-        lv_obj_t *lbl = makeLabel(btn, 12, 0, 270, TEXT_MAIN, &font_ui_14);
-        makeSingleLine(lbl, &font_ui_14);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 12, 0);
+        lv_obj_t *lbl = makeLabel(btn, S(12), 0, SCREEN_W - S(50), TEXT_MAIN, &FONT_UI_SMALL);
+        makeSingleLine(lbl, &FONT_UI_SMALL);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, S(12), 0);
         listRowBtn[i] = btn;
         listRowLbl[i] = lbl;
     }
 
-    lblListStatus = makeLabel(screenList, 16, 90, 288, TEXT_WARN, &font_ui_14);
+    lblListStatus = makeLabel(screenList, S(16), S(90), SCREEN_W - S(32), TEXT_WARN, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(lblListStatus, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lblListStatus, "");
 
-    lv_obj_t *prev = makeGlassButton(screenList, 12, 213, 60, 24, onPageTap, (void *)(intptr_t)-1);
+    lv_obj_t *prev = makeGlassButton(screenList, S(12), LIST_FOOTER_Y, S(60), S(24), onPageTap, (void *)(intptr_t)-1);
     makeButtonLabel(prev, LV_SYMBOL_LEFT);
-    lv_obj_t *next = makeGlassButton(screenList, 248, 213, 60, 24, onPageTap, (void *)(intptr_t)1);
+    lv_obj_t *next = makeGlassButton(screenList, SCREEN_W - S(72), LIST_FOOTER_Y, S(60), S(24), onPageTap, (void *)(intptr_t)1);
     makeButtonLabel(next, LV_SYMBOL_RIGHT);
-    lblListPage = makeLabel(screenList, 100, 216, 120, TEXT_DIM, &font_ui_14);
+    lblListPage = makeLabel(screenList, (SCREEN_W - S(120)) / 2, LIST_FOOTER_Y + S(3), S(120), TEXT_DIM, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(lblListPage, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lblListPage, "1/1");
 }
@@ -592,40 +601,44 @@ void buildPlayerUi() {
     lv_obj_set_style_radius(dimLayer, 0, 0);
     lv_obj_clear_flag(dimLayer, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
 
-    lblVolume = makeLabel(screenPlayer, 14, 10, 62, DEFAULT_ACCENT, &font_ui_14);
-    makeSingleLine(lblVolume, &font_ui_14);
+    lblVolume = makeLabel(screenPlayer, S(14), S(10), S(62), DEFAULT_ACCENT, &FONT_UI_SMALL);
+    makeSingleLine(lblVolume, &FONT_UI_SMALL);
 
-    lv_obj_t *btnDevice = makeGlassButton(screenPlayer, 198, 5, 54, 28, onOpenDevices, nullptr);
+    lv_obj_t *btnDevice = makeGlassButton(screenPlayer, SCREEN_W - S(122), S(5), S(54), S(28), onOpenDevices, nullptr);
     makeButtonLabel(btnDevice, LV_SYMBOL_AUDIO);
 
-    lv_obj_t *btnLists = makeGlassButton(screenPlayer, 256, 5, 54, 28, onOpenPlaylists, nullptr);
+    lv_obj_t *btnLists = makeGlassButton(screenPlayer, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
     makeButtonLabel(btnLists, LV_SYMBOL_LIST);
 
-    lblTitle = makeTextBlock(38, 50, TEXT_MAIN, &font_ui_20);
-    lblArtist = makeTextBlock(90, 20, TEXT_DIM, &font_ui_14);
-    lblMessage = makeTextBlock(112, 36, TEXT_WARN, &font_ui_14);
+    // On a square screen the text block moves down into the extra space and the title gets room for two lines.
+    int titleH = S(50);
+    if (EXTRA_H > 0) titleH = max(titleH, 2 * (int)lv_font_get_line_height(&FONT_UI_LARGE));
+    int textY = S(38) + EXTRA_H / 2;
+    lblTitle = makeTextBlock(textY - (titleH - S(50)), titleH, TEXT_MAIN, &FONT_UI_LARGE);
+    lblArtist = makeTextBlock(textY + S(52), S(20), TEXT_DIM, &FONT_UI_SMALL);
+    lblMessage = makeTextBlock(textY + S(74), S(36), TEXT_WARN, &FONT_UI_SMALL);
     for (lv_obj_t *lbl : {lblTitle, lblArtist}) {
         lv_obj_add_flag(lbl, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_EVENT_BUBBLE));
         lv_obj_add_event_cb(lbl, onTrackTap, LV_EVENT_CLICKED, nullptr);
     }
 
-    lv_obj_t *panel = makeGlass(screenPlayer, 10, 170, 300, 64, 24, LV_OPA_20);
+    lv_obj_t *panel = makeGlass(screenPlayer, S(10), SCREEN_H - S(70), S(300), S(64), S(24), LV_OPA_20);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
 
-    lblElapsed = makeLabel(panel, 12, 3, 36, TEXT_DIM, &font_ui_14);
+    lblElapsed = makeLabel(panel, S(12), S(3), S(36), TEXT_DIM, &FONT_UI_SMALL);
     lv_label_set_text(lblElapsed, "0:00");
 
     barProgress = lv_bar_create(panel);
-    lv_obj_set_pos(barProgress, 52, 10);
-    lv_obj_set_size(barProgress, 196, 8);
+    lv_obj_set_pos(barProgress, S(52), S(10));
+    lv_obj_set_size(barProgress, S(196), S(8));
     lv_bar_set_range(barProgress, 0, 1000);
     lv_obj_set_style_bg_color(barProgress, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(barProgress, LV_OPA_30, LV_PART_MAIN);
     lv_obj_set_style_bg_color(barProgress, DEFAULT_ACCENT, LV_PART_INDICATOR);
 
     lv_obj_t *seekArea = lv_obj_create(panel);
-    lv_obj_set_pos(seekArea, 44, 0);
-    lv_obj_set_size(seekArea, 212, 26);
+    lv_obj_set_pos(seekArea, S(44), 0);
+    lv_obj_set_size(seekArea, S(212), S(26));
     lv_obj_set_style_bg_opa(seekArea, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(seekArea, 0, 0);
     lv_obj_set_style_pad_all(seekArea, 0, 0);
@@ -633,7 +646,7 @@ void buildPlayerUi() {
     lv_obj_add_flag(seekArea, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(seekArea, onSeekTap, LV_EVENT_CLICKED, nullptr);
 
-    lblTotal = makeLabel(panel, 252, 3, 36, TEXT_DIM, &font_ui_14);
+    lblTotal = makeLabel(panel, S(252), S(3), S(36), TEXT_DIM, &FONT_UI_SMALL);
     lv_obj_set_style_text_align(lblTotal, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(lblTotal, "0:00");
 
@@ -809,8 +822,10 @@ void ui_show_art() {
         app_log(LL_ERROR, "Art: no background buffer");
         return;
     }
+    size_t artSize = 0;
+    const uint8_t *art = spotify_art_data(artSize);
     uint16_t w = 0, h = 0;
-    JRESULT res = TJpgDec.getFsJpgSize(&w, &h, SPOTIFY_ART_PATH, LittleFS);
+    JRESULT res = art ? TJpgDec.getJpgSize(&w, &h, art, artSize) : TJpgDec.getFsJpgSize(&w, &h, SPOTIFY_ART_PATH, LittleFS);
     if (res != JDR_OK) {
         app_log(LL_ERROR, "Art: JPEG header error %d", res);
         return;
@@ -828,7 +843,7 @@ void ui_show_art() {
     cropY = (decodedH - bgH) / 2;
     sumR = sumG = sumB = pixelCount = 0;
 
-    res = TJpgDec.drawFsJpg(0, 0, SPOTIFY_ART_PATH, LittleFS);
+    res = art ? TJpgDec.drawJpg(0, 0, art, artSize) : TJpgDec.drawFsJpg(0, 0, SPOTIFY_ART_PATH, LittleFS);
     if (res != JDR_OK) {
         app_log(LL_ERROR, "Art: decode error %d", res);
         return;
