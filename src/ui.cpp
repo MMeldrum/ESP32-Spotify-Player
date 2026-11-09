@@ -2,6 +2,7 @@
 #include "app_log.h"
 #include "board.h"
 #include "config.h"
+#include "clock_time.h"
 #include "display.h"
 #include "web_portal.h"
 #include "led.h"
@@ -54,6 +55,15 @@ lv_obj_t *screenList = nullptr;
 lv_obj_t *screenSettings = nullptr;
 lv_obj_t *sliderBrightness;
 lv_obj_t *lblBrightness;
+lv_obj_t *switchNight;
+lv_obj_t *ddNightFrom;
+lv_obj_t *ddNightTo;
+lv_obj_t *sliderNight;
+lv_obj_t *lblNightBrightness;
+lv_obj_t *ddTimeZone;
+lv_obj_t *lblClockNow;
+bool nightActive = false;
+int appliedBrightness = -1;
 lv_obj_t *lblListTitle;
 lv_obj_t *lblListStatus;
 lv_obj_t *lblListPage;
@@ -327,6 +337,9 @@ void onTouchWake() {
     if (lv_scr_act() == screenPlayer) setControlsShown(true, 0);
 }
 
+void updateNightMode(bool force);
+void updateSettingsClock();
+
 void controlsTimerCb(lv_timer_t *) {
     // During a firmware update the flash writes keep stalling the PSRAM the panel scans from, which makes
     // the picture jump, so the backlight stays off; the web page shows the progress.
@@ -339,6 +352,8 @@ void controlsTimerCb(lv_timer_t *) {
     if (display_screen_on() && lv_scr_act() != screenSetup && lv_disp_get_inactive_time(nullptr) >= SCREEN_OFF_MS) {
         display_set_screen_on(false);
     }
+    updateNightMode(false);
+    if (lv_scr_act() == screenSettings) updateSettingsClock();
     if (lv_scr_act() != screenPlayer) return;
     bool playing = lastState.active && shownPlaying;
     if (!controlsShown) {
@@ -711,32 +726,149 @@ void onOpenDevices(lv_event_t *) { openList(LIST_DEVICES); }
 void onOpenPlaylists(lv_event_t *) { openList(LIST_PLAYLISTS); }
 void onBack(lv_event_t *) { showPlayerScreen(); }
 
-void setBrightnessLabel(int value) {
+void setPercentLabel(lv_obj_t *lbl, int value) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", value);
-    lv_label_set_text(lblBrightness, buf);
+    lv_label_set_text(lbl, buf);
 }
 
-// Changes the backlight while dragging; saves when the finger lifts.
+bool isNightHour(int hour) {
+    int from = g_config.nightFrom, to = g_config.nightTo;
+    if (from == to) return false;
+    return from < to ? (hour >= from && hour < to) : (hour >= from || hour < to);
+}
+
+// Applies the day or night brightness. Checked every timer tick; only touches the backlight on a change.
+void updateNightMode(bool force) {
+    struct tm now;
+    bool night = g_config.nightMode && time_now(now) && isNightHour(now.tm_hour);
+    // While a slider is being dragged it previews its own value.
+    if (!force && lv_scr_act() == screenSettings &&
+        (lv_obj_has_state(sliderBrightness, LV_STATE_PRESSED) || lv_obj_has_state(sliderNight, LV_STATE_PRESSED))) {
+        return;
+    }
+    int level = night ? g_config.nightBrightness : g_config.screenBrightness;
+    if (force || night != nightActive || level != appliedBrightness) {
+        nightActive = night;
+        appliedBrightness = level;
+        display_set_brightness(level);
+    }
+}
+
+void updateSettingsClock() {
+    static int shownMinute = -2;
+    struct tm now;
+    int minute = time_now(now) ? now.tm_hour * 60 + now.tm_min : -1;
+    if (minute == shownMinute) return;
+    shownMinute = minute;
+    char buf[24];
+    if (minute < 0) {
+        snprintf(buf, sizeof(buf), "Time not set yet");
+    } else {
+        snprintf(buf, sizeof(buf), "Now %02d:%02d", now.tm_hour, now.tm_min);
+    }
+    lv_label_set_text(lblClockNow, buf);
+}
+
+// Sliders change the backlight while dragging (as a preview) and save when the finger lifts.
 void onBrightness(lv_event_t *e) {
-    int value = lv_slider_get_value(sliderBrightness);
+    lv_obj_t *slider = lv_event_get_target(e);
+    bool isNight = slider == sliderNight;
+    int value = lv_slider_get_value(slider);
     display_set_brightness(value);
-    setBrightnessLabel(value);
-    if (lv_event_get_code(e) == LV_EVENT_RELEASED && value != g_config.screenBrightness) {
-        g_config.screenBrightness = value;
+    setPercentLabel(isNight ? lblNightBrightness : lblBrightness, value);
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) return;
+    int &stored = isNight ? g_config.nightBrightness : g_config.screenBrightness;
+    if (value != stored) {
+        stored = value;
         config_save();
     }
+    updateNightMode(true);
+}
+
+void onNightSetting(lv_event_t *e) {
+    lv_obj_t *target = lv_event_get_target(e);
+    if (target == switchNight) {
+        g_config.nightMode = lv_obj_has_state(switchNight, LV_STATE_CHECKED);
+    } else if (target == ddNightFrom) {
+        g_config.nightFrom = lv_dropdown_get_selected(ddNightFrom);
+    } else if (target == ddNightTo) {
+        g_config.nightTo = lv_dropdown_get_selected(ddNightTo);
+    } else if (target == ddTimeZone) {
+        g_config.timeZone = lv_dropdown_get_selected(ddTimeZone);
+        time_set_zone(g_config.timeZone);
+        updateSettingsClock();
+    }
+    config_save();
+    updateNightMode(true);
 }
 
 void onOpenSettings(lv_event_t *) {
     lv_slider_set_value(sliderBrightness, g_config.screenBrightness, LV_ANIM_OFF);
-    setBrightnessLabel(g_config.screenBrightness);
+    setPercentLabel(lblBrightness, g_config.screenBrightness);
+    lv_slider_set_value(sliderNight, g_config.nightBrightness, LV_ANIM_OFF);
+    setPercentLabel(lblNightBrightness, g_config.nightBrightness);
+    if (g_config.nightMode) {
+        lv_obj_add_state(switchNight, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(switchNight, LV_STATE_CHECKED);
+    }
+    lv_dropdown_set_selected(ddNightFrom, g_config.nightFrom);
+    lv_dropdown_set_selected(ddNightTo, g_config.nightTo);
+    lv_dropdown_set_selected(ddTimeZone, constrain(g_config.timeZone, 0, TIME_ZONE_COUNT - 1));
+    updateSettingsClock();
+    lv_obj_scroll_to_y(screenSettings, 0, LV_ANIM_OFF);
     lv_scr_load(screenSettings);
+}
+
+lv_obj_t *makeSettingsSlider(lv_obj_t *card, int y, int minValue) {
+    lv_obj_t *slider = lv_slider_create(card);
+    lv_obj_set_pos(slider, S(20), y);
+    lv_obj_set_size(slider, SCREEN_W - S(24) - S(40), S(8));
+    lv_slider_set_range(slider, minValue, 100);
+    lv_obj_set_style_bg_color(slider, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, DEFAULT_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, S(6), LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, S(14));
+    lv_obj_add_event_cb(slider, onBrightness, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_add_event_cb(slider, onBrightness, LV_EVENT_RELEASED, nullptr);
+    return slider;
+}
+
+lv_obj_t *makeDropdown(lv_obj_t *parent, int x, int y, int w, const char *options) {
+    lv_obj_t *dd = lv_dropdown_create(parent);
+    lv_obj_set_pos(dd, x, y);
+    lv_obj_set_size(dd, w, S(28));
+    lv_dropdown_set_options(dd, options);
+    lv_obj_set_style_text_font(dd, &FONT_UI_SMALL, 0);
+    lv_obj_set_style_text_color(dd, TEXT_MAIN, 0);
+    lv_obj_set_style_bg_color(dd, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(dd, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(dd, 0, 0);
+    lv_obj_set_style_radius(dd, S(10), 0);
+    lv_obj_set_style_pad_ver(dd, S(4), 0);
+    lv_obj_set_style_pad_hor(dd, S(8), 0);
+    lv_obj_t *list = lv_dropdown_get_list(dd);
+    lv_obj_set_style_text_font(list, &FONT_UI_SMALL, 0);
+    lv_obj_set_style_text_color(list, TEXT_MAIN, 0);
+    lv_obj_set_style_bg_color(list, lv_color_hex(0x282830), 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_max_height(list, S(140), 0);
+    lv_obj_set_style_bg_color(list, DEFAULT_ACCENT, LV_PART_SELECTED);
+    lv_obj_set_style_bg_color(list, DEFAULT_ACCENT, LV_PART_SELECTED | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(dd, onNightSetting, LV_EVENT_VALUE_CHANGED, nullptr);
+    return dd;
 }
 
 void buildSettingsUi() {
     screenSettings = lv_obj_create(nullptr);
     styleScreen(screenSettings, DEFAULT_TINT);
+    // Scrolls on screens too short for all the cards (the CYD).
+    lv_obj_add_flag(screenSettings, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(screenSettings, LV_DIR_VER);
+    lv_obj_set_style_pad_bottom(screenSettings, S(10), 0);
 
     lv_obj_t *back = makeGlassButton(screenSettings, S(10), S(6), S(44), S(28), onBack, nullptr);
     makeButtonLabel(back, LV_SYMBOL_LEFT);
@@ -744,25 +876,60 @@ void buildSettingsUi() {
     makeSingleLine(title, &FONT_UI_LARGE);
     lv_label_set_text(title, "Settings");
 
-    lv_obj_t *card = makeGlass(screenSettings, S(12), S(44), SCREEN_W - S(24), S(64), S(18));
-    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_t *lbl = makeLabel(card, S(14), S(8), S(160), TEXT_MAIN, &FONT_UI_SMALL);
-    lv_label_set_text(lbl, LV_SYMBOL_IMAGE "  Brightness");
-    lblBrightness = makeLabel(card, SCREEN_W - S(24) - S(74), S(8), S(60), TEXT_DIM, &FONT_UI_SMALL);
-    lv_obj_set_style_text_align(lblBrightness, LV_TEXT_ALIGN_RIGHT, 0);
+    const int cardW = SCREEN_W - S(24);
+    const int valueX = cardW - S(74);
 
-    sliderBrightness = lv_slider_create(card);
-    lv_obj_set_pos(sliderBrightness, S(20), S(40));
-    lv_obj_set_size(sliderBrightness, SCREEN_W - S(24) - S(40), S(8));
-    lv_slider_set_range(sliderBrightness, DISPLAY_MIN_BRIGHTNESS, 100);
-    lv_obj_set_style_bg_color(sliderBrightness, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(sliderBrightness, LV_OPA_30, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(sliderBrightness, DEFAULT_ACCENT, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(sliderBrightness, lv_color_white(), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(sliderBrightness, S(6), LV_PART_KNOB);
-    lv_obj_set_ext_click_area(sliderBrightness, S(14));
-    lv_obj_add_event_cb(sliderBrightness, onBrightness, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_event_cb(sliderBrightness, onBrightness, LV_EVENT_RELEASED, nullptr);
+    // Brightness
+    lv_obj_t *card = makeGlass(screenSettings, S(12), S(44), cardW, S(64), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *lbl = makeLabel(card, S(14), S(8), S(180), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, LV_SYMBOL_IMAGE "  Brightness");
+    lblBrightness = makeLabel(card, valueX, S(8), S(60), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_set_style_text_align(lblBrightness, LV_TEXT_ALIGN_RIGHT, 0);
+    sliderBrightness = makeSettingsSlider(card, S(40), DISPLAY_MIN_BRIGHTNESS);
+
+    // Night mode
+    card = makeGlass(screenSettings, S(12), S(116), cardW, S(126), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lbl = makeLabel(card, S(14), S(9), S(180), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "\xE2\x98\xBE  Night mode");
+    switchNight = lv_switch_create(card);
+    lv_obj_set_pos(switchNight, cardW - S(60), S(6));
+    lv_obj_set_size(switchNight, S(46), S(24));
+    lv_obj_set_style_bg_color(switchNight, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(switchNight, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(switchNight, DEFAULT_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(switchNight, onNightSetting, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    static char hours[24 * 6 + 1];
+    char *p = hours;
+    for (int h = 0; h < 24; h++) p += sprintf(p, h ? "\n%02d:00" : "%02d:00", h);
+    lbl = makeLabel(card, S(14), S(44), S(50), TEXT_DIM, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "From");
+    ddNightFrom = makeDropdown(card, S(60), S(40), S(84), hours);
+    lbl = makeLabel(card, S(152), S(44), S(30), TEXT_DIM, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "to");
+    ddNightTo = makeDropdown(card, S(178), S(40), S(84), hours);
+
+    lbl = makeLabel(card, S(14), S(76), S(200), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "Brightness at night");
+    lblNightBrightness = makeLabel(card, valueX, S(76), S(60), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_set_style_text_align(lblNightBrightness, LV_TEXT_ALIGN_RIGHT, 0);
+    sliderNight = makeSettingsSlider(card, S(106), DISPLAY_MIN_BRIGHTNESS);
+
+    // Time zone (for night mode and the clock)
+    card = makeGlass(screenSettings, S(12), S(250), cardW, S(72), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lbl = makeLabel(card, S(14), S(8), S(150), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "Time zone");
+    lblClockNow = makeLabel(card, cardW - S(144), S(8), S(130), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_set_style_text_align(lblClockNow, LV_TEXT_ALIGN_RIGHT, 0);
+    String zones;
+    for (int i = 0; i < TIME_ZONE_COUNT; i++) {
+        if (i) zones += "\n";
+        zones += TIME_ZONES[i].name;
+    }
+    ddTimeZone = makeDropdown(card, S(14), S(36), cardW - S(28), zones.c_str());
 }
 
 void buildListUi() {

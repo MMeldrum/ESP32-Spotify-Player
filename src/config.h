@@ -22,6 +22,12 @@ struct AppConfig {
     int artSize = DEFAULT_ART_SIZE;
     int ledBrightness = 40;
     int screenBrightness = 100;
+    // Night mode: dimmer screen between nightFrom and nightTo (hours, local time).
+    bool nightMode = false;
+    int nightFrom = 22;
+    int nightTo = 7;
+    int nightBrightness = 35;
+    int timeZone = 0;  // index into TIME_ZONES
     String webPassHash;
     String webPassSalt;
     String refreshToken;

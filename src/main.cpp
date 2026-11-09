@@ -1,6 +1,7 @@
 #include "config.h"
 #include "app_log.h"
 #include "board.h"
+#include "clock_time.h"
 #include "display.h"
 #include "led.h"
 #include "spotify.h"
@@ -213,6 +214,7 @@ static void startAccessPoint() {
 }
 
 static void enterNoSpotify() {
+    time_begin();
     String ip = WiFi.localIP().toString();
     update_setup_screen(ip.c_str(), false);
     show_setup_screen();
@@ -220,6 +222,7 @@ static void enterNoSpotify() {
 }
 
 static void enterReady() {
+    time_begin();
     show_player_screen();
     spotify_start();
     appState = READY;

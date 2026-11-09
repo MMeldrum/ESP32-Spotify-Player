@@ -50,6 +50,11 @@ void config_load() {
     g_config.artSize = doc["art_size"] | DEFAULT_ART_SIZE;
     g_config.ledBrightness = constrain((int)(doc["led_brightness"] | 40), 0, 100);
     g_config.screenBrightness = constrain((int)(doc["screen_brightness"] | 100), DISPLAY_MIN_BRIGHTNESS, 100);
+    g_config.nightMode = doc["night_mode"] | false;
+    g_config.nightFrom = constrain((int)(doc["night_from"] | 22), 0, 23);
+    g_config.nightTo = constrain((int)(doc["night_to"] | 7), 0, 23);
+    g_config.nightBrightness = constrain((int)(doc["night_brightness"] | DISPLAY_MIN_BRIGHTNESS), DISPLAY_MIN_BRIGHTNESS, 100);
+    g_config.timeZone = max(0, (int)(doc["time_zone"] | 0));
     g_config.refreshToken = doc["refresh_token"] | "";
     g_config.webPassHash = doc["web_pass_hash"] | "";
     g_config.webPassSalt = doc["web_pass_salt"] | "";
@@ -77,6 +82,11 @@ bool config_save() {
     doc["art_size"] = g_config.artSize;
     doc["led_brightness"] = g_config.ledBrightness;
     doc["screen_brightness"] = g_config.screenBrightness;
+    doc["night_mode"] = g_config.nightMode;
+    doc["night_from"] = g_config.nightFrom;
+    doc["night_to"] = g_config.nightTo;
+    doc["night_brightness"] = g_config.nightBrightness;
+    doc["time_zone"] = g_config.timeZone;
     doc["refresh_token"] = g_config.refreshToken;
     doc["web_pass_hash"] = g_config.webPassHash;
     doc["web_pass_salt"] = g_config.webPassSalt;
