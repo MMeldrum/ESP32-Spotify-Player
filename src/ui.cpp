@@ -547,6 +547,20 @@ void onButton(lv_event_t *e) {
     spotify_send(cmd);
 }
 
+// Swiping left skips to the next track, swiping right goes back. Works with the controls hidden too.
+void onSwipe(lv_event_t *) {
+    lv_indev_t *indev = lv_indev_get_act();
+    if (!indev || popup || !lastState.active) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
+    // Do not also click whatever the swipe started on.
+    lv_indev_wait_release(indev);
+    spotify_send(dir == LV_DIR_LEFT ? CMD_NEXT : CMD_PREV);
+    tempMessage = dir == LV_DIR_LEFT ? LV_SYMBOL_NEXT " Next track" : LV_SYMBOL_PREV " Previous track";
+    tempMessageUntil = millis() + 1500;
+    ui_update_player(lastState);
+}
+
 lv_obj_t *makeControl(lv_obj_t *parent, int x, int w, SpotifyCmd cmd, const char *text) {
     lv_obj_t *btn = makeGlassButton(parent, S(x), S(26) + ROW_OFF, S(w), S(34), onButton, (void *)(uintptr_t)cmd);
     makeButtonLabel(btn, text);
@@ -740,6 +754,7 @@ void buildPlayerUi() {
     screenPlayer = lv_obj_create(nullptr);
     styleScreen(screenPlayer, DEFAULT_TINT);
     lv_obj_add_event_cb(screenPlayer, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
+    lv_obj_add_event_cb(screenPlayer, onSwipe, LV_EVENT_GESTURE, nullptr);
 
     bgDsc.header.always_zero = 0;
     bgDsc.header.cf = LV_IMG_CF_TRUE_COLOR;
