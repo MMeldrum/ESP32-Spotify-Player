@@ -1,4 +1,5 @@
 #include "config.h"
+#include "board.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <algorithm>
@@ -45,7 +46,7 @@ void config_load() {
         g_config.networks.push_back({legacySsid, (const char *)(doc["pass"] | "")});
     }
     g_config.clientId = doc["client_id"] | "";
-    g_config.artSize = doc["art_size"] | 300;
+    g_config.artSize = doc["art_size"] | DEFAULT_ART_SIZE;
     g_config.ledBrightness = constrain((int)(doc["led_brightness"] | 40), 0, 100);
     g_config.refreshToken = doc["refresh_token"] | "";
     g_config.webPassHash = doc["web_pass_hash"] | "";

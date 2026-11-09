@@ -17,7 +17,7 @@ namespace {
 constexpr int S(int v) { return v * UI_SCALE_NUM / UI_SCALE_DEN; }
 // Height left over when the scaled layout is shorter than the screen (square panels).
 constexpr int EXTRA_H = SCREEN_H - S(240);
-constexpr int BG_MAX_W = S(120);
+constexpr int BG_MAX_W = ART_BUFFER_W;
 constexpr int BG_MAX_H = (BG_MAX_W * SCREEN_H + SCREEN_W - 1) / SCREEN_W + 1;
 constexpr uint32_t OPTIMISTIC_MS = 2500;
 constexpr int LIST_TOP = S(42);
@@ -65,7 +65,7 @@ lv_color_t *bgPixels = nullptr;
 lv_img_dsc_t bgDsc;
 int bgW = BG_MAX_W;
 int bgH = BG_MAX_H;
-int cropX = 0;
+int decodedW = 1;
 int cropY = 0;
 uint32_t sumR, sumG, sumB, pixelCount;
 lv_color_t curAccent = DEFAULT_ACCENT;
@@ -795,13 +795,14 @@ void formatTime(char *out, size_t size, int seconds) {
     snprintf(out, size, "%d:%02d", seconds / 60, seconds % 60);
 }
 
+// Scales the decoded image to bgW wide (nearest pixel) and keeps the middle bgH rows.
 bool artCallback(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
     for (int row = 0; row < h; row++) {
-        int by = y + row - cropY;
+        int by = (y + row) * bgW / decodedW - cropY;
         if (by < 0 || by >= bgH) continue;
         for (int col = 0; col < w; col++) {
-            int bx = x + col - cropX;
-            if (bx < 0 || bx >= bgW) continue;
+            int bx = (x + col) * bgW / decodedW;
+            if (bx >= bgW) continue;
             uint16_t p = bitmap[row * w + col];
             bgPixels[by * bgW + bx].full = p;
             sumR += (p >> 11) & 0x1F;
@@ -824,7 +825,11 @@ void themeFromArt() {
 } // namespace
 
 void ui_init() {
+#ifdef BOARD_HAS_PSRAM
+    bgPixels = (lv_color_t *)ps_malloc(BG_MAX_W * BG_MAX_H * sizeof(lv_color_t));
+#else
     bgPixels = (lv_color_t *)malloc(BG_MAX_W * BG_MAX_H * sizeof(lv_color_t));
+#endif
     TJpgDec.setCallback(artCallback);
     buildSetupUi();
     buildPlayerUi();
@@ -974,16 +979,18 @@ void ui_show_art() {
         return;
     }
 
+    // Decode at the smallest JPEG scale that is still at least the buffer width, then scale the whole
+    // image to the buffer width (480 px on the 4848S040 gives a 1:1 picture). Smaller art is stretched by LVGL.
     uint8_t scale = 1;
     while (scale < 8 && w / (scale * 2) >= BG_MAX_W) scale *= 2;
     TJpgDec.setJpgScale(scale);
 
-    int decodedW = w / scale;
+    decodedW = max(1, w / scale);
     int decodedH = h / scale;
     bgW = min(decodedW, BG_MAX_W);
-    bgH = min(decodedH, (bgW * SCREEN_H + SCREEN_W - 1) / SCREEN_W + 1);
-    cropX = (decodedW - bgW) / 2;
-    cropY = (decodedH - bgH) / 2;
+    int scaledH = decodedH * bgW / decodedW;
+    bgH = min(scaledH, (bgW * SCREEN_H + SCREEN_W - 1) / SCREEN_W + 1);
+    cropY = (scaledH - bgH) / 2;
     sumR = sumG = sumB = pixelCount = 0;
 
     res = art ? TJpgDec.drawJpg(0, 0, art, artSize) : TJpgDec.drawFsJpg(0, 0, SPOTIFY_ART_PATH, LittleFS);

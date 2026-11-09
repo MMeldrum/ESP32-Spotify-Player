@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <vector>
+#include "board.h"
 
 constexpr size_t MAX_PINS = 20;
 constexpr size_t MAX_NETWORKS = 8;
@@ -18,7 +19,7 @@ struct WifiNet {
 struct AppConfig {
     std::vector<WifiNet> networks;
     String clientId;
-    int artSize = 300;
+    int artSize = DEFAULT_ART_SIZE;
     int ledBrightness = 40;
     String webPassHash;
     String webPassSalt;

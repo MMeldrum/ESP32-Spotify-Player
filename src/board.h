@@ -18,6 +18,9 @@ constexpr int UI_SCALE_DEN = 2;
 // Downloads are buffered in PSRAM, not LittleFS: a flash write stalls PSRAM, which the RGB panel scans
 // its framebuffer from, and the picture slips sideways.
 #define BOARD_TEMP_IN_PSRAM 1
+// Album art is scaled to fill the screen 1:1 (480x480, kept in PSRAM); the 640 px image is the default source.
+constexpr int ART_BUFFER_W = SCREEN_W;
+constexpr int DEFAULT_ART_SIZE = 640;
 
 #else
 
@@ -31,5 +34,8 @@ constexpr int UI_SCALE_DEN = 1;
 #define BOARD_HAS_RGB_LED 1
 #define BOARD_HAS_BOOT_BUTTON 1
 #define BOARD_TEMP_IN_PSRAM 0
+// Album art is decoded small and stretched by LVGL, which keeps it in internal RAM and softens it.
+constexpr int ART_BUFFER_W = 120;
+constexpr int DEFAULT_ART_SIZE = 300;
 
 #endif
