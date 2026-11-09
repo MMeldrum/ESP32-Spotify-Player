@@ -104,7 +104,7 @@ constexpr size_t MAX_LOADED_PLAYLISTS = 100;
 constexpr uint32_t CONTROLS_HIDE_MS = 5000;
 constexpr uint32_t FADE_MS = 400;
 // The backlight switches off after this long without touches; a touch or a new track switches it back on.
-constexpr uint32_t SCREEN_OFF_MS = 60000;
+constexpr uint32_t SCREEN_OFF_MS = 10 * 60 * 1000;
 constexpr lv_opa_t DIM_WITH_CONTROLS = LV_OPA_40;
 constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
 lv_obj_t *controlsPanel;
