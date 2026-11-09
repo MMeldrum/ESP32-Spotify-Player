@@ -105,6 +105,9 @@ constexpr uint32_t FADE_MS = 400;
 constexpr lv_opa_t DIM_WITH_CONTROLS = LV_OPA_40;
 constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
 lv_obj_t *controlsPanel;
+lv_obj_t *textBox;
+// How far the track text slides down when the controls are hidden: to just above the screen's bottom edge.
+constexpr int TEXT_DROP = S(66);
 lv_obj_t *wakeCatcher;
 bool controlsShown = true;
 bool bgVisible = false;
@@ -230,6 +233,7 @@ void applyTheme(lv_color_t accent, lv_color_t tint) {
 
 void execOpa(void *obj, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)obj, v, 0); }
 void execBgOpa(void *obj, int32_t v) { lv_obj_set_style_bg_opa((lv_obj_t *)obj, v, 0); }
+void execTranslateY(void *obj, int32_t v) { lv_obj_set_style_translate_y((lv_obj_t *)obj, v, 0); }
 
 // Animates from the current value, so a fade that is interrupted reverses smoothly.
 void animateTo(lv_obj_t *obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to, uint32_t time) {
@@ -244,6 +248,7 @@ void animateTo(lv_obj_t *obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to,
     lv_anim_set_exec_cb(&a, exec);
     lv_anim_set_values(&a, from, to);
     lv_anim_set_time(&a, time);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
     lv_anim_start(&a);
 }
 
@@ -255,6 +260,20 @@ void updateDim(uint32_t time) {
 void setControlsShown(bool shown, uint32_t time) {
     controlsShown = shown;
     animateTo(controlsPanel, execOpa, lv_obj_get_style_opa(controlsPanel, 0), shown ? LV_OPA_COVER : LV_OPA_TRANSP, time);
+    // The text jumps instead of sliding: up at once when the controls return, down once they have faded out.
+    lv_anim_del(textBox, execTranslateY);
+    if (shown || !time) {
+        execTranslateY(textBox, shown ? 0 : TEXT_DROP);
+    } else {
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, textBox);
+        lv_anim_set_exec_cb(&a, execTranslateY);
+        lv_anim_set_values(&a, 0, TEXT_DROP);
+        lv_anim_set_time(&a, time);
+        lv_anim_set_path_cb(&a, lv_anim_path_step);
+        lv_anim_start(&a);
+    }
     // While hidden, a full-screen layer takes the first tap so it does not also press a control.
     if (shown) {
         lv_obj_add_flag(wakeCatcher, LV_OBJ_FLAG_HIDDEN);
@@ -684,7 +703,7 @@ void buildPlayerUi() {
     // The text sits in a column anchored just above the controls: any message, the title (up to two lines),
     // then the artist. Empty lines are hidden, so the text always ends right above the controls.
     const int controlsY = SCREEN_H - S(70);
-    lv_obj_t *textBox = lv_obj_create(screenPlayer);
+    textBox = lv_obj_create(screenPlayer);
     lv_obj_remove_style_all(textBox);
     lv_obj_set_pos(textBox, S(16), S(38));
     lv_obj_set_size(textBox, SCREEN_W - S(32), controlsY - S(6) - S(38));
