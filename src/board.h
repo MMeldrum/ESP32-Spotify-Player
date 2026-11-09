@@ -21,6 +21,8 @@ constexpr int UI_SCALE_DEN = 2;
 // Album art is scaled to fill the screen 1:1 (480x480, kept in PSRAM); the 640 px image is the default source.
 constexpr int ART_BUFFER_W = SCREEN_W;
 constexpr int DEFAULT_ART_SIZE = 640;
+// default_16MB.csv has two app slots, so firmware can be updated from the web page.
+#define BOARD_HAS_OTA 1
 
 #else
 
@@ -37,5 +39,7 @@ constexpr int UI_SCALE_DEN = 1;
 // Album art is decoded small and stretched by LVGL, which keeps it in internal RAM and softens it.
 constexpr int ART_BUFFER_W = 120;
 constexpr int DEFAULT_ART_SIZE = 300;
+// huge_app.csv has a single app slot: no updates over Wi-Fi.
+#define BOARD_HAS_OTA 0
 
 #endif

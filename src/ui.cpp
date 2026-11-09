@@ -3,6 +3,7 @@
 #include "board.h"
 #include "config.h"
 #include "display.h"
+#include "web_portal.h"
 #include "led.h"
 #include <LittleFS.h>
 #include <TJpg_Decoder.h>
@@ -324,6 +325,13 @@ void onTouchWake() {
 }
 
 void controlsTimerCb(lv_timer_t *) {
+    // During a firmware update the flash writes keep stalling the PSRAM the panel scans from, which makes
+    // the picture jump, so the backlight stays off; the web page shows the progress.
+    int updatePercent = 0;
+    if (web_portal_update_progress(updatePercent)) {
+        display_set_screen_on(false);
+        return;
+    }
     // The setup screen stays lit: it shows what to connect to.
     if (display_screen_on() && lv_scr_act() != screenSetup && lv_disp_get_inactive_time(nullptr) >= SCREEN_OFF_MS) {
         display_set_screen_on(false);

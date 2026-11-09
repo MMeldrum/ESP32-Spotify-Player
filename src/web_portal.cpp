@@ -5,6 +5,9 @@
 #include "led.h"
 #include "spotify.h"
 #include <ArduinoJson.h>
+#include <Update.h>
+#include <esp_app_format.h>
+#include <sdkconfig.h>
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
 #include <atomic>
@@ -68,6 +71,7 @@ const char INDEX_BODY[] PROGMEM = R"rawliteral(
 <button type="button" data-go="spotify" class="sta-only" hidden>Spotify</button>
 <button type="button" data-go="playlists" class="sta-only" hidden>Playlists</button>
 <button type="button" data-go="debug">Debug</button>
+<button type="button" data-go="firmware" id="fw-tab" hidden>Firmware</button>
 <button type="button" data-go="security">Security</button>
 </nav>
 
@@ -172,6 +176,15 @@ const char INDEX_BODY[] PROGMEM = R"rawliteral(
 <div class="msg" id="pw-msg"></div>
 </div>
 
+<div class="section" data-tab="firmware" hidden>
+<h3>Firmware update</h3>
+<span class="hint">Installed: <span id="fw-built"></span>. The screen stays dark during the update. Choose the update file for this board (<code>firmware.bin</code> from a PlatformIO build, or <code>firmware-esp32-4848s040-update.bin</code> from a release), not the merged file. The device restarts when it is done; your settings are kept.</span>
+<input type="file" id="fw-file" accept=".bin" style="margin:12px 0">
+<button type="button" id="fw-btn">Upload &amp; install</button>
+<progress id="fw-progress" max="100" value="0" hidden style="width:100%;margin-top:12px"></progress>
+<div class="msg" id="fw-msg"></div>
+</div>
+
 <div class="section" data-tab="debug" hidden>
 <h3>Debug Log</h3>
 <div class="row">
@@ -193,6 +206,8 @@ fetch('/status').then(r=>r.json()).then(s=>{
   $('led').value=s.led;
   $('led-val').textContent=s.led;
   $('client_id').value=s.client_id;
+  $('fw-tab').hidden=!s.ota;
+  $('fw-built').textContent=s.board+', built '+s.built;
   $('pw-hint').textContent=s.protected
     ?'This device is password protected. Your browser asks for it; the username can be anything, for example admin. Forgot it? '+(s.boot_button?'Hold the BOOT button on the board for 3 seconds.':'Long-press the screen and tap Forget Wi-Fi twice.')
     :'No password is set: anyone on your network can change these settings.';
@@ -241,6 +256,35 @@ $('spotify-form').addEventListener('submit',async e=>{
   const r=await fetch('/save-spotify',{method:'POST',body:new URLSearchParams(new FormData(e.target))});
   if(!r.ok){msg(await r.text());return;}
   poll();
+});
+
+$('fw-btn').addEventListener('click',()=>{
+  const file=$('fw-file').files[0];
+  const box=$('fw-msg');
+  if(!file){box.textContent='Choose a firmware file first.';return;}
+  if(!confirm('Install '+file.name+'? The device restarts when it is done.'))return;
+  const data=new FormData();
+  data.append('firmware',file,file.name);
+  const xhr=new XMLHttpRequest();
+  const bar=$('fw-progress');
+  bar.hidden=false;bar.value=0;
+  $('fw-btn').disabled=true;
+  box.textContent='Uploading...';
+  xhr.upload.onprogress=e=>{if(e.lengthComputable)bar.value=Math.round(e.loaded*100/e.total);};
+  xhr.onload=()=>{
+    $('fw-btn').disabled=false;
+    if(xhr.status===200){
+      bar.value=100;
+      box.textContent='Installed. The device is restarting; this page reloads in 15 seconds.';
+      setTimeout(()=>location.reload(),15000);
+    }else{
+      bar.hidden=true;
+      box.textContent='Update failed: '+(xhr.responseText||xhr.status);
+    }
+  };
+  xhr.onerror=()=>{$('fw-btn').disabled=false;bar.hidden=true;box.textContent='Upload failed: connection lost.';};
+  xhr.open('POST','/update');
+  xhr.send(data);
 });
 
 $('art-form').addEventListener('submit',async e=>{
@@ -634,6 +678,9 @@ void handleStatus(AsyncWebServerRequest *request) {
     doc["led"] = g_config.ledBrightness;
     doc["has_led"] = (bool)BOARD_HAS_RGB_LED;
     doc["boot_button"] = (bool)BOARD_HAS_BOOT_BUTTON;
+    doc["ota"] = (bool)BOARD_HAS_OTA;
+    doc["board"] = BOARD_NAME;
+    doc["built"] = __DATE__ " " __TIME__;
     doc["client_id"] = g_config.clientId;
     doc["protected"] = config_web_password_set();
     doc["ssid"] = WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String();
@@ -889,6 +936,23 @@ uint8_t authFailures = 0;
 uint32_t authWindowStart = 0;
 uint32_t authLockedUntil = 0;
 
+// True when the request's Basic auth header carries the stored password (any username).
+bool passwordInHeader(AsyncWebServerRequest *request) {
+    if (!request->hasHeader("Authorization")) return false;
+    String header = request->header("Authorization");
+    if (!header.startsWith("Basic ")) return false;
+    String encoded = header.substring(6);
+    unsigned char decoded[128];
+    size_t length = 0;
+    if (encoded.length() >= 160 ||
+        mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &length, (const unsigned char *)encoded.c_str(), encoded.length()) != 0) {
+        return false;
+    }
+    decoded[length] = 0;
+    const char *colon = strchr((const char *)decoded, ':');
+    return colon && config_check_web_password(String(colon + 1));
+}
+
 // HTTP Basic auth: any username, the stored password is checked.
 void requirePassword(AsyncWebServerRequest *request, ArMiddlewareNext next) {
     if (!config_web_password_set()) {
@@ -902,21 +966,10 @@ void requirePassword(AsyncWebServerRequest *request, ArMiddlewareNext next) {
 
     bool hasHeader = request->hasHeader("Authorization");
     if (hasHeader) {
-        String header = request->header("Authorization");
-        if (header.startsWith("Basic ")) {
-            String encoded = header.substring(6);
-            unsigned char decoded[128];
-            size_t length = 0;
-            if (encoded.length() < 160 &&
-                mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &length, (const unsigned char *)encoded.c_str(), encoded.length()) == 0) {
-                decoded[length] = 0;
-                const char *colon = strchr((const char *)decoded, ':');
-                if (colon && config_check_web_password(String(colon + 1))) {
-                    authFailures = 0;
-                    next();
-                    return;
-                }
-            }
+        if (passwordInHeader(request)) {
+            authFailures = 0;
+            next();
+            return;
         }
         // A browser fires several requests at once, so only a burst of failures counts as guessing.
         uint32_t now = millis();
@@ -978,7 +1031,100 @@ void handleSaveSpotify(AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "OK");
 }
 
+// Firmware upload. The file is streamed straight into the spare app slot; the device switches to it and
+// restarts only when the whole image arrived and verified.
+std::atomic<bool> updateActive{false};
+std::atomic<int> updatePercent{0};
+String updateError;
+
+// Checks the first chunk: an app image for this chip, not a merged full-flash image (which starts with
+// the bootloader, also a valid image header).
+bool checkImageStart(const uint8_t *data, size_t len, String &error) {
+    if (len < sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
+        error = "File too small.";
+        return false;
+    }
+    const auto *header = (const esp_image_header_t *)data;
+    if (header->magic != ESP_IMAGE_HEADER_MAGIC) {
+        error = "Not an ESP32 firmware file.";
+        return false;
+    }
+    if (header->chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID) {
+        error = "This firmware is for a different chip. Use the " BOARD_NAME " build.";
+        return false;
+    }
+    const auto *desc = (const esp_app_desc_t *)(data + sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t));
+    if (desc->magic_word != ESP_APP_DESC_MAGIC_WORD) {
+        error = "This looks like a full-flash (merged) image. Upload the update file (firmware.bin) instead.";
+        return false;
+    }
+    return true;
+}
+
+void handleUpdateChunk(AsyncWebServerRequest *request, const String &, size_t index, uint8_t *data, size_t len, bool final) {
+    if (index == 0) {
+        updateError = "";
+        // Upload chunks arrive before the password middleware runs, so check it here too.
+        if (config_web_password_set() && !passwordInHeader(request)) {
+            updateError = "Password required.";
+        } else if (!BOARD_HAS_OTA) {
+            updateError = "This board cannot be updated over Wi-Fi.";
+        } else if (updateActive) {
+            updateError = "Another update is already running.";
+        } else if (checkImageStart(data, len, updateError)) {
+            if (Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+                updateActive = true;
+                updatePercent = 0;
+                app_log(LL_WARN, "Firmware update started (%u bytes)", (unsigned)request->contentLength());
+            } else {
+                updateError = String("Cannot start update: ") + Update.errorString();
+            }
+        }
+    }
+    if (!updateActive || updateError.length()) return;
+
+    if (Update.write(data, len) != len) {
+        updateError = String("Write failed: ") + Update.errorString();
+        Update.abort();
+        updateActive = false;
+        return;
+    }
+    size_t total = request->contentLength();
+    if (total) updatePercent = min<int>(99, (index + len) * 100 / total);
+    // Flash writes stall both cores; pausing after each chunk lets the idle task run, or the task
+    // watchdog restarts the device part-way through the upload.
+    vTaskDelay(1);
+
+    if (final) {
+        if (Update.end(true)) {
+            updatePercent = 100;
+            app_log(LL_WARN, "Firmware update written (%u bytes), restarting", (unsigned)(index + len));
+        } else {
+            updateError = String("Verification failed: ") + Update.errorString();
+            updateActive = false;
+        }
+    }
+}
+
+void handleUpdateDone(AsyncWebServerRequest *request) {
+    if (updateError.length() || !updateActive || updatePercent < 100) {
+        String error = updateError.length() ? updateError : String("Upload incomplete.");
+        app_log(LL_ERROR, "Firmware update failed: %s", error.c_str());
+        if (updateActive) Update.abort();
+        updateActive = false;
+        request->send(400, "text/plain", error);
+        return;
+    }
+    request->send(200, "text/plain", "OK");
+    restartAt = millis() + 1500;
+}
+
 } // namespace
+
+bool web_portal_update_progress(int &percent) {
+    percent = updatePercent;
+    return updateActive;
+}
 
 void web_portal_begin() {
     server.addMiddleware(requirePassword);
@@ -1007,6 +1153,7 @@ void web_portal_begin() {
     server.on("/debug", HTTP_POST, handleDebug);
     server.on("/log-clear", HTTP_POST, handleLogClear);
     server.on("/save-spotify", HTTP_POST, handleSaveSpotify);
+    server.on("/update", HTTP_POST, handleUpdateDone, handleUpdateChunk);
     server.begin();
 }
 

@@ -39,6 +39,8 @@ jobs:
             0x8000 .pio/build/esp32-4848s040/partitions.bin \
             0xe000 "$BOOT_APP0" \
             0x10000 .pio/build/esp32-4848s040/firmware.bin
+          # App-only image for updates from the device's web page.
+          cp .pio/build/esp32-4848s040/firmware.bin firmware-esp32-4848s040-update.bin
 
       - uses: actions/upload-artifact@v5
         with:
@@ -46,6 +48,7 @@ jobs:
           path: |
             firmware-merged.bin
             firmware-esp32-4848s040-merged.bin
+            firmware-esp32-4848s040-update.bin
 
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/')
@@ -54,3 +57,4 @@ jobs:
           files: |
             firmware-merged.bin
             firmware-esp32-4848s040-merged.bin
+            firmware-esp32-4848s040-update.bin
