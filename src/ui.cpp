@@ -98,6 +98,17 @@ int listPage = 0;
 uint32_t listShownVersion = 0;
 constexpr size_t MAX_LOADED_PLAYLISTS = 100;
 
+// While music plays, the bottom controls fade out after a while without touches; the first tap brings
+// them back. The black layer over the album art is lighter while they are hidden.
+constexpr uint32_t CONTROLS_HIDE_MS = 5000;
+constexpr uint32_t FADE_MS = 400;
+constexpr lv_opa_t DIM_WITH_CONTROLS = LV_OPA_40;
+constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
+lv_obj_t *controlsPanel;
+lv_obj_t *wakeCatcher;
+bool controlsShown = true;
+bool bgVisible = false;
+
 bool optimisticActive() { return (int32_t)(millis() - optimisticUntil) < 0; }
 
 uint32_t nextCodepoint(const char *&p) {
@@ -179,9 +190,12 @@ void makeSingleLine(lv_obj_t *lbl, const lv_font_t *font) {
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
 }
 
-lv_obj_t *makeTextBlock(int y, int h, lv_color_t color, const lv_font_t *font) {
-    lv_obj_t *lbl = makeLabel(screenPlayer, S(16), y, SCREEN_W - S(32), color, font);
-    lv_obj_set_height(lbl, h);
+// A line of the text column: as tall as its text, up to maxH, then cut off with dots.
+lv_obj_t *makeTextBlock(lv_obj_t *parent, int maxH, lv_color_t color, const lv_font_t *font) {
+    lv_obj_t *lbl = makeLabel(parent, 0, 0, 0, color, font);
+    lv_obj_set_width(lbl, lv_pct(100));
+    lv_obj_set_height(lbl, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(lbl, maxH, 0);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(lbl, "");
@@ -214,13 +228,62 @@ void applyTheme(lv_color_t accent, lv_color_t tint) {
     lv_obj_set_style_text_color(lblVolume, accent, 0);
 }
 
+void execOpa(void *obj, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)obj, v, 0); }
+void execBgOpa(void *obj, int32_t v) { lv_obj_set_style_bg_opa((lv_obj_t *)obj, v, 0); }
+
+// Animates from the current value, so a fade that is interrupted reverses smoothly.
+void animateTo(lv_obj_t *obj, lv_anim_exec_xcb_t exec, int32_t from, int32_t to, uint32_t time) {
+    lv_anim_del(obj, exec);
+    if (!time || from == to) {
+        exec(obj, to);
+        return;
+    }
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, obj);
+    lv_anim_set_exec_cb(&a, exec);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_time(&a, time);
+    lv_anim_start(&a);
+}
+
+void updateDim(uint32_t time) {
+    lv_opa_t target = !bgVisible ? LV_OPA_TRANSP : controlsShown ? DIM_WITH_CONTROLS : DIM_WITHOUT_CONTROLS;
+    animateTo(dimLayer, execBgOpa, lv_obj_get_style_bg_opa(dimLayer, 0), target, time);
+}
+
+void setControlsShown(bool shown, uint32_t time) {
+    controlsShown = shown;
+    animateTo(controlsPanel, execOpa, lv_obj_get_style_opa(controlsPanel, 0), shown ? LV_OPA_COVER : LV_OPA_TRANSP, time);
+    // While hidden, a full-screen layer takes the first tap so it does not also press a control.
+    if (shown) {
+        lv_obj_add_flag(wakeCatcher, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(wakeCatcher, LV_OBJ_FLAG_HIDDEN);
+    }
+    updateDim(time);
+}
+
+void onWakeTap(lv_event_t *) { setControlsShown(true, FADE_MS); }
+
+void controlsTimerCb(lv_timer_t *) {
+    if (lv_scr_act() != screenPlayer) return;
+    bool playing = lastState.active && shownPlaying;
+    if (!controlsShown) {
+        if (!playing) setControlsShown(true, FADE_MS);
+        return;
+    }
+    if (playing && !popup && lv_disp_get_inactive_time(nullptr) >= CONTROLS_HIDE_MS) setControlsShown(false, FADE_MS);
+}
+
 void setBackgroundVisible(bool visible) {
+    bgVisible = visible;
     if (visible) {
         lv_obj_clear_flag(bgImg, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(bgImg, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_set_style_bg_opa(dimLayer, visible ? LV_OPA_60 : LV_OPA_TRANSP, 0);
+    updateDim(0);
 }
 
 void closePopup(lv_event_t *) {
@@ -376,6 +439,13 @@ void onSeekTap(lv_event_t *) {
 
 void onButton(lv_event_t *e) {
     SpotifyCmd cmd = (SpotifyCmd)(uintptr_t)lv_event_get_user_data(e);
+    bool volumeCmd = cmd == CMD_VOL_UP || cmd == CMD_VOL_DOWN;
+    if (volumeCmd && lastState.active && !lastState.volumeAllowed) {
+        tempMessage = VOLUME_NOT_ALLOWED;
+        tempMessageUntil = millis() + 3000;
+        ui_update_player(lastState);
+        return;
+    }
     if (cmd == CMD_PLAY_PAUSE) {
         shownPlaying = !shownPlaying;
         setPlayIcon();
@@ -395,6 +465,7 @@ lv_obj_t *makeControl(lv_obj_t *parent, int x, int w, SpotifyCmd cmd, const char
 }
 
 void showPlayerScreen() {
+    setControlsShown(true, 0);
     lv_scr_load(screenPlayer);
 }
 
@@ -610,13 +681,24 @@ void buildPlayerUi() {
     lv_obj_t *btnLists = makeGlassButton(screenPlayer, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
     makeButtonLabel(btnLists, LV_SYMBOL_LIST);
 
-    // On a square screen the text block moves down into the extra space and the title gets room for two lines.
-    int titleH = S(50);
-    if (EXTRA_H > 0) titleH = max(titleH, 2 * (int)lv_font_get_line_height(&FONT_UI_LARGE));
-    int textY = S(38) + EXTRA_H / 2;
-    lblTitle = makeTextBlock(textY - (titleH - S(50)), titleH, TEXT_MAIN, &FONT_UI_LARGE);
-    lblArtist = makeTextBlock(textY + S(52), S(20), TEXT_DIM, &FONT_UI_SMALL);
-    lblMessage = makeTextBlock(textY + S(74), S(36), TEXT_WARN, &FONT_UI_SMALL);
+    // The text sits in a column anchored just above the controls: any message, the title (up to two lines),
+    // then the artist. Empty lines are hidden, so the text always ends right above the controls.
+    const int controlsY = SCREEN_H - S(70);
+    lv_obj_t *textBox = lv_obj_create(screenPlayer);
+    lv_obj_remove_style_all(textBox);
+    lv_obj_set_pos(textBox, S(16), S(38));
+    lv_obj_set_size(textBox, SCREEN_W - S(32), controlsY - S(6) - S(38));
+    lv_obj_clear_flag(textBox, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+    lv_obj_set_flex_flow(textBox, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(textBox, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(textBox, S(2), 0);
+
+    int titleH = max(S(50), 2 * (int)lv_font_get_line_height(&FONT_UI_LARGE));
+    lblMessage = makeTextBlock(textBox, S(36), TEXT_WARN, &FONT_UI_SMALL);
+    lblTitle = makeTextBlock(textBox, titleH, TEXT_MAIN, &FONT_UI_LARGE);
+    lblArtist = makeTextBlock(textBox, S(20), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_add_flag(lblMessage, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(lblArtist, LV_OBJ_FLAG_HIDDEN);
     for (lv_obj_t *lbl : {lblTitle, lblArtist}) {
         lv_obj_add_flag(lbl, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_EVENT_BUBBLE));
         lv_obj_add_event_cb(lbl, onTrackTap, LV_EVENT_CLICKED, nullptr);
@@ -624,6 +706,7 @@ void buildPlayerUi() {
 
     lv_obj_t *panel = makeGlass(screenPlayer, S(10), SCREEN_H - S(70), S(300), S(64), S(24), LV_OPA_20);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+    controlsPanel = panel;
 
     lblElapsed = makeLabel(panel, S(12), S(3), S(36), TEXT_DIM, &FONT_UI_SMALL);
     lv_label_set_text(lblElapsed, "0:00");
@@ -659,6 +742,18 @@ void buildPlayerUi() {
     lv_obj_set_style_text_color(lblPlayPause, BG_BOTTOM, 0);
     makeControl(panel, 190, 46, CMD_NEXT, LV_SYMBOL_NEXT);
     makeControl(panel, 245, 46, CMD_VOL_UP, LV_SYMBOL_VOLUME_MAX);
+
+    wakeCatcher = lv_obj_create(screenPlayer);
+    lv_obj_set_pos(wakeCatcher, 0, 0);
+    lv_obj_set_size(wakeCatcher, SCREEN_W, SCREEN_H);
+    lv_obj_set_style_bg_opa(wakeCatcher, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(wakeCatcher, 0, 0);
+    lv_obj_set_style_radius(wakeCatcher, 0, 0);
+    lv_obj_clear_flag(wakeCatcher, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(wakeCatcher, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(wakeCatcher, onWakeTap, LV_EVENT_PRESSED, nullptr);
+    lv_obj_add_event_cb(wakeCatcher, onLongPress, LV_EVENT_LONG_PRESSED, nullptr);
+    lv_timer_create(controlsTimerCb, 250, nullptr);
 
     setVolumeLabel();
     applyTheme(DEFAULT_ACCENT, DEFAULT_TINT);
@@ -742,6 +837,16 @@ void show_player_screen() {
     showPlayerScreen();
 }
 
+// Sets a line of the text column, hiding it when empty so the lines below stay above the controls.
+static void setLine(lv_obj_t *lbl, const String &text) {
+    lv_label_set_text(lbl, text.c_str());
+    if (text.length()) {
+        lv_obj_clear_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void ui_update_player(const PlayerState &s) {
     lastState = s;
 
@@ -753,7 +858,7 @@ void ui_update_player(const PlayerState &s) {
     }
     if (artist != shownArtist) {
         shownArtist = artist;
-        lv_label_set_text(lblArtist, artist.c_str());
+        setLine(lblArtist, artist);
     }
 
     bool tempActive = (int32_t)(millis() - tempMessageUntil) < 0;
@@ -761,7 +866,7 @@ void ui_update_player(const PlayerState &s) {
     String message = cleanText(rawMessage);
     if (message != shownMessage) {
         shownMessage = message;
-        lv_label_set_text(lblMessage, message.c_str());
+        setLine(lblMessage, message);
     }
 
     if (!optimisticActive()) {

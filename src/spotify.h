@@ -66,8 +66,12 @@ struct PlayerState {
     uint32_t progressMs = 0;
     uint32_t durationMs = 0;
     int volume = -1;
+    // False for devices (most phones, some speakers) that refuse remote volume changes.
+    bool volumeAllowed = true;
     uint32_t stamp = 0;
 };
+
+constexpr const char *VOLUME_NOT_ALLOWED = "This device doesn't allow volume control";
 
 void spotify_init();
 void spotify_start();

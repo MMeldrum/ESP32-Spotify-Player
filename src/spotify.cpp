@@ -205,6 +205,8 @@ HttpResult httpDo(const char *method, const String &url, const char *contentType
     return r;
 }
 
+String volumeRefusedBy;
+
 void setMessage(const String &msg) {
     xSemaphoreTake(stateLock, portMAX_DELAY);
     shared.message = msg;
@@ -314,6 +316,7 @@ bool parsePlayer(const String &body, PlayerState &out) {
     filter["is_playing"] = true;
     filter["progress_ms"] = true;
     filter["device"]["volume_percent"] = true;
+    filter["device"]["supports_volume"] = true;
     filter["device"]["name"] = true;
     filter["device"]["type"] = true;
     JsonObject item = filter["item"].to<JsonObject>();
@@ -347,6 +350,7 @@ bool parsePlayer(const String &body, PlayerState &out) {
     out.playing = doc["is_playing"] | false;
     out.progressMs = doc["progress_ms"] | 0;
     out.volume = doc["device"]["volume_percent"] | -1;
+    out.volumeAllowed = doc["device"]["supports_volume"] | true;
     out.deviceName = (const char *)(doc["device"]["name"] | "");
     out.deviceType = (const char *)(doc["device"]["type"] | "");
 
@@ -457,6 +461,7 @@ void pollPlayer() {
             return;
         }
         s.stamp = millis();
+        if (s.deviceName == volumeRefusedBy) s.volumeAllowed = false;
         xSemaphoreTake(stateLock, portMAX_DELAY);
         shared = s;
         xSemaphoreGive(stateLock);
@@ -658,6 +663,15 @@ void runCommand(const CmdMsg &msg) {
         if (snap.volume < 0) return;
         newVolume = constrain(snap.volume + (msg.cmd == CMD_VOL_UP ? 10 : -10), 0, 100);
         r = apiCall("PUT", "/me/player/volume?volume_percent=" + String(newVolume));
+        if (r.code == 403) {
+            // Some devices claim volume support but still refuse it; remember that until the device changes.
+            volumeRefusedBy = snap.deviceName;
+            xSemaphoreTake(stateLock, portMAX_DELAY);
+            shared.volumeAllowed = false;
+            shared.message = VOLUME_NOT_ALLOWED;
+            xSemaphoreGive(stateLock);
+            return;
+        }
         break;
     case CMD_LIST_DEVICES:
         fetchList(LIST_DEVICES, 0);
