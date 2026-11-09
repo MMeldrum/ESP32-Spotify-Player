@@ -1035,7 +1035,10 @@ void handleSaveSpotify(AsyncWebServerRequest *request) {
 // restarts only when the whole image arrived and verified.
 std::atomic<bool> updateActive{false};
 std::atomic<int> updatePercent{0};
+std::atomic<uint32_t> updateLastChunk{0};
+std::atomic<bool> updateCancel{false};
 String updateError;
+constexpr uint32_t UPDATE_STALL_MS = 15000;
 
 // Checks the first chunk: an app image for this chip, not a merged full-flash image (which starts with
 // the bootloader, also a valid image header).
@@ -1075,6 +1078,11 @@ void handleUpdateChunk(AsyncWebServerRequest *request, const String &, size_t in
             if (Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
                 updateActive = true;
                 updatePercent = 0;
+                updateCancel = false;
+                // An upload cut off part-way must not leave the device waiting (with the screen off).
+                request->onDisconnect([]() {
+                    if (updateActive && updatePercent < 100) updateCancel = true;
+                });
                 app_log(LL_WARN, "Firmware update started (%u bytes)", (unsigned)request->contentLength());
             } else {
                 updateError = String("Cannot start update: ") + Update.errorString();
@@ -1082,6 +1090,7 @@ void handleUpdateChunk(AsyncWebServerRequest *request, const String &, size_t in
         }
     }
     if (!updateActive || updateError.length()) return;
+    updateLastChunk = millis();
 
     if (Update.write(data, len) != len) {
         updateError = String("Write failed: ") + Update.errorString();
@@ -1158,6 +1167,14 @@ void web_portal_begin() {
 }
 
 void web_portal_loop() {
+    // Cancel an upload whose connection dropped or that stopped sending.
+    if (updateActive && updatePercent < 100 &&
+        (updateCancel || millis() - updateLastChunk > UPDATE_STALL_MS)) {
+        app_log(LL_WARN, "Firmware update cancelled: upload %s", updateCancel ? "disconnected" : "stalled");
+        Update.abort();
+        updateActive = false;
+        updateCancel = false;
+    }
     uint32_t t = restartAt;
     if (t && (int32_t)(millis() - t) >= 0) ESP.restart();
 }
