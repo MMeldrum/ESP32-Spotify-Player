@@ -25,7 +25,7 @@ const char PAGE_TOP[] PROGMEM = R"rawliteral(<!DOCTYPE html>
 <style>
 body{background:#121212;color:#fff;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;justify-content:center;padding:20px;margin:0;box-sizing:border-box}
 *,*::before,*::after{box-sizing:border-box}
-.container{background:#181818;padding:30px;border-radius:8px;width:100%;max-width:400px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+.container{background:#181818;padding:30px;border-radius:8px;width:100%;max-width:480px;box-shadow:0 4px 12px rgba(0,0,0,.5)}
 h2{color:#1DB954;text-align:center;margin-top:0}
 p{color:#B3B3B3;line-height:1.5}
 .section{margin-bottom:30px;padding-bottom:20px;border-bottom:1px solid #282828}
@@ -51,8 +51,8 @@ button.small{width:auto;padding:8px 16px;font-size:14px;background:#282828}
 .pl button{width:auto;padding:6px 12px;font-size:13px;background:#282828}
 #pl-results{max-height:320px;overflow-y:auto;margin-top:10px}
 [hidden]{display:none!important}
-.tabs{display:flex;gap:4px;margin-bottom:24px;background:#222;padding:4px;border-radius:500px}
-.tabs button{flex:1;padding:8px 4px;font-size:14px;background:transparent;color:#B3B3B3}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:24px;background:#222;padding:4px;border-radius:22px}
+.tabs button{flex:1 1 auto;width:auto;margin:0;padding:8px 6px;font-size:13px;white-space:nowrap;background:transparent;color:#B3B3B3}
 .tabs button:hover{background:#2a2a2a}
 .tabs button.active{background:#1DB954;color:#fff}
 </style>
