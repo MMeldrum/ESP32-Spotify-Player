@@ -7,6 +7,7 @@
 #include <mbedtls/sha256.h>
 
 static const char *CONFIG_PATH = "/config.json";
+static const char *CONFIG_TMP_PATH = "/config.tmp";
 
 AppConfig g_config;
 
@@ -103,10 +104,17 @@ bool config_save() {
         o["name"] = pin.name;
     }
 
-    File file = LittleFS.open(CONFIG_PATH, "w");
+    // Write a temp file and rename it over the old one (atomic on LittleFS), so a reset or power cut during
+    // the write cannot leave an empty config and lose the Wi-Fi networks, Spotify login and pins.
+    File file = LittleFS.open(CONFIG_TMP_PATH, "w");
     if (!file) return false;
-    serializeJson(doc, file);
+    size_t expected = measureJson(doc);
+    size_t written = serializeJson(doc, file);
     file.close();
+    if (written != expected || !LittleFS.rename(CONFIG_TMP_PATH, CONFIG_PATH)) {
+        LittleFS.remove(CONFIG_TMP_PATH);
+        return false;
+    }
     return true;
 }
 
