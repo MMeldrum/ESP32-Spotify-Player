@@ -63,6 +63,7 @@ lv_obj_t *sliderNight;
 lv_obj_t *lblNightBrightness;
 lv_obj_t *ddTimeZone;
 lv_obj_t *ddIdle;
+lv_obj_t *ddIdleTime;
 lv_obj_t *lblClockNow;
 bool nightActive = false;
 int appliedBrightness = -1;
@@ -120,7 +121,9 @@ constexpr size_t MAX_LOADED_PLAYLISTS = 100;
 constexpr uint32_t CONTROLS_HIDE_MS = 5000;
 constexpr uint32_t FADE_MS = 400;
 // The backlight switches off after this long without touches; a touch or a new track switches it back on.
-constexpr uint32_t SCREEN_OFF_MS = 10 * 60 * 1000;
+// Idle timeout choices on the Settings screen, in minutes.
+constexpr int IDLE_CHOICES[] = {1, 2, 5, 10, 15, 30, 60};
+constexpr int IDLE_CHOICE_COUNT = sizeof(IDLE_CHOICES) / sizeof(IDLE_CHOICES[0]);
 constexpr lv_opa_t DIM_WITH_CONTROLS = LV_OPA_40;
 constexpr lv_opa_t DIM_WITHOUT_CONTROLS = LV_OPA_20;
 lv_obj_t *controlsPanel;
@@ -358,7 +361,8 @@ void controlsTimerCb(lv_timer_t *) {
     }
     // After a while without touches the screen switches off, or shows the clock if that is chosen.
     // The setup screen stays lit: it shows what to connect to.
-    if (display_screen_on() && lv_scr_act() != screenSetup && lv_disp_get_inactive_time(nullptr) >= SCREEN_OFF_MS) {
+    if (display_screen_on() && lv_scr_act() != screenSetup &&
+        lv_disp_get_inactive_time(nullptr) >= (uint32_t)g_config.idleMinutes * 60000) {
         if (!g_config.idleClock) {
             display_set_screen_on(false);
         } else if (lv_scr_act() != screenClock) {
@@ -811,6 +815,8 @@ void onNightSetting(lv_event_t *e) {
         g_config.nightTo = lv_dropdown_get_selected(ddNightTo);
     } else if (target == ddIdle) {
         g_config.idleClock = lv_dropdown_get_selected(ddIdle) == 1;
+    } else if (target == ddIdleTime) {
+        g_config.idleMinutes = IDLE_CHOICES[lv_dropdown_get_selected(ddIdleTime)];
     } else if (target == ddTimeZone) {
         g_config.timeZone = lv_dropdown_get_selected(ddTimeZone);
         time_set_zone(g_config.timeZone);
@@ -834,6 +840,11 @@ void onOpenSettings(lv_event_t *) {
     lv_dropdown_set_selected(ddNightTo, g_config.nightTo);
     lv_dropdown_set_selected(ddTimeZone, constrain(g_config.timeZone, 0, TIME_ZONE_COUNT - 1));
     lv_dropdown_set_selected(ddIdle, g_config.idleClock ? 1 : 0);
+    int idleIndex = 0;
+    for (int i = 0; i < IDLE_CHOICE_COUNT; i++) {
+        if (IDLE_CHOICES[i] <= g_config.idleMinutes) idleIndex = i;
+    }
+    lv_dropdown_set_selected(ddIdleTime, idleIndex);
     updateSettingsClock();
     lv_obj_scroll_to_y(screenSettings, 0, LV_ANIM_OFF);
     lv_scr_load(screenSettings);
@@ -952,8 +963,9 @@ void buildSettingsUi() {
     // What happens after 10 minutes without touches
     card = makeGlass(screenSettings, S(12), S(330), cardW, S(72), S(18));
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lbl = makeLabel(card, S(14), S(8), cardW - S(28), TEXT_MAIN, &FONT_UI_SMALL);
-    lv_label_set_text(lbl, "After 10 minutes idle");
+    lbl = makeLabel(card, S(14), S(8), S(100), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "When idle for");
+    ddIdleTime = makeDropdown(card, cardW - S(124), S(4), S(110), "1 minute\n2 minutes\n5 minutes\n10 minutes\n15 minutes\n30 minutes\n1 hour");
     ddIdle = makeDropdown(card, S(14), S(36), cardW - S(28), "Turn the screen off\nShow the clock");
 }
 

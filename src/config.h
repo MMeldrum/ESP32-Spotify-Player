@@ -30,6 +30,7 @@ struct AppConfig {
     int timeZone = 0;  // index into TIME_ZONES
     // When idle, show a clock instead of switching the screen off.
     bool idleClock = false;
+    int idleMinutes = 10;
     String webPassHash;
     String webPassSalt;
     String refreshToken;
