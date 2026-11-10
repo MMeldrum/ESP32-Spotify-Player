@@ -35,7 +35,7 @@ volatile bool everOk = false;
 
 struct CmdMsg {
     uint8_t cmd;
-    char arg[64];
+    char arg[96];
 };
 
 ListData lists[LIST_KIND_COUNT];
@@ -346,6 +346,7 @@ bool parsePlayer(const String &body, PlayerState &out) {
     item["external_ids"]["isrc"] = true;
     item["artists"][0]["name"] = true;
     item["album"]["name"] = true;
+    item["album"]["id"] = true;
     item["album"]["album_type"] = true;
     item["album"]["release_date"] = true;
     item["album"]["total_tracks"] = true;
@@ -391,6 +392,7 @@ bool parsePlayer(const String &body, PlayerState &out) {
         out.artUrl = pickImage(it["images"], g_config.artSize, &out.artUrlSmall);
     } else {
         out.album = (const char *)(it["album"]["name"] | "");
+        out.albumId = (const char *)(it["album"]["id"] | "");
         out.albumType = (const char *)(it["album"]["album_type"] | "");
         out.releaseDate = (const char *)(it["album"]["release_date"] | "");
         out.totalTracks = it["album"]["total_tracks"] | 0;
@@ -751,19 +753,22 @@ void fetchRecent() {
     finishList(LIST_RECENT, LIST_READY, "", std::move(items), 0, 0, count);
 }
 
-// arg is "trackId|contextUri". Artist contexts cannot start at a given track, so those play the track alone,
+// arg is "trackId|contextUri|positionMs". Artist contexts cannot start at a given track, so those play the track alone,
 // as does any context Spotify refuses.
 HttpResult playTrack(const char *arg) {
     String a = arg;
     int bar = a.indexOf('|');
+    int bar2 = bar < 0 ? -1 : a.indexOf('|', bar + 1);
     String trackUri = "spotify:track:" + (bar < 0 ? a : a.substring(0, bar));
-    String context = bar < 0 ? String() : a.substring(bar + 1);
+    String context = bar < 0 ? String() : a.substring(bar + 1, bar2 < 0 ? a.length() : bar2);
+    uint32_t position = bar2 < 0 ? 0 : strtoul(a.c_str() + bar2 + 1, nullptr, 10);
     if (context.startsWith("spotify:artist:")) context = "";
     JsonDocument body;
     String json;
     if (context.length()) {
         body["context_uri"] = context;
         body["offset"]["uri"] = trackUri;
+        if (position) body["position_ms"] = position;
         serializeJson(body, json);
         HttpResult r = apiCall("PUT", "/me/player/play", json);
         if (r.code < 400 || r.code == 401 || r.code == 429) return r;
@@ -772,6 +777,7 @@ HttpResult playTrack(const char *arg) {
         json = "";
     }
     body["uris"][0] = trackUri;
+    if (position) body["position_ms"] = position;
     serializeJson(body, json);
     return apiCall("PUT", "/me/player/play", json);
 }
@@ -1085,10 +1091,10 @@ void spotify_select(ListKind kind, const String &id) {
     xQueueSend(cmdQueue, &msg, 0);
 }
 
-void spotify_play_track(const String &trackId, const String &contextUri) {
+void spotify_play_track(const String &trackId, const String &contextUri, uint32_t positionMs) {
     CmdMsg msg = {};
     msg.cmd = CMD_PLAY_TRACK;
-    String arg = trackId + "|" + contextUri;
+    String arg = trackId + "|" + contextUri + "|" + String(positionMs);
     if (arg.length() >= sizeof(msg.arg)) arg = trackId;  // too long to carry the context
     strlcpy(msg.arg, arg.c_str(), sizeof(msg.arg));
     xQueueSend(cmdQueue, &msg, 0);

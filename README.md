@@ -30,7 +30,7 @@ The ESP32 does not play audio itself. It controls an existing Spotify Connect de
 - Devices that do not allow remote volume control (most phones) show a message instead of a fake volume change.
 - **Device picker**: transfer playback to any available Spotify Connect device.
 - **Playlists**: pinned playlists are shown first, the rest can be loaded in pages of 50 ("Load more").
-- **Track details popup** (tap title or artist): album, release date, track number, length, explicit flag, ISRC.
+- **Track details popup** (tap title or artist): album, release date, track number, length, explicit flag, ISRC. **Play album** plays the whole album, carrying on from the current point in this track.
 - **Device info popup** (long press anywhere): IP address, Wi-Fi signal, MAC, uptime, heap, Spotify status. Useful for troubleshooting.
 - **Firmware updates over Wi-Fi** (ESP32-4848S040): upload new firmware on the **Firmware** tab of the web interface.
 - **RGB LED ambient light** (CYD): the RGB LED on the back of the board fades to the accent colour of the current album art and turns off when nothing is playing. Brightness (0-100%, default 40, 0 = off) is set on the web interface.
@@ -229,7 +229,7 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 | Tap the speaker icon (top right) | Choose the playback device |
 | Tap the list icon (top right) | Open playlists (pinned first, then "Load more") |
 | Tap the gear icon (top) | Settings |
-| Tap title or artist | Track details |
+| Tap title or artist | Track details, with **Play album** |
 | Tap "Next: ..." / "Previous: ..." (ESP32-4848S040) | Up next queue / recently played list |
 | Tap the clock | Back to the player |
 | Long press (0.7 s) anywhere else | Device and network info |

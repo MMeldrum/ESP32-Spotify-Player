@@ -415,7 +415,9 @@ void onResetTap(lv_event_t *e) {
     lv_label_set_text(label, "Tap to confirm");
 }
 
-void showPopup(const char *title, const String &body, const char *footer, bool withReset = false) {
+// A full-screen card; tap to close. An optional action button sits bottom right (red when danger).
+void showPopup(const char *title, const String &body, const char *footer, const char *actionText = nullptr,
+               lv_event_cb_t actionCb = nullptr, bool danger = false) {
     if (popup) lv_obj_del(popup);
 
     popup = lv_obj_create(lv_layer_top());
@@ -449,19 +451,20 @@ void showPopup(const char *title, const String &body, const char *footer, bool w
     makeSingleLine(lblF, &FONT_UI_SMALL);
     lv_label_set_text(lblF, footer);
 
-    if (withReset) {
+    if (actionText) {
         lv_obj_set_height(lblB, cardH - S(82));
         lv_obj_set_width(lblF, S(110));
-        lv_obj_t *btn = makeGlassButton(card, cardW - S(156), cardH - S(40), S(140), S(30), onResetTap, nullptr);
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0xB3261E), 0);
+        lv_obj_t *btn = makeGlassButton(card, cardW - S(156), cardH - S(40), S(140), S(30), actionCb, nullptr);
+        lv_obj_set_style_bg_color(btn, danger ? lv_color_hex(0xB3261E) : curAccent, 0);
         lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
-        makeButtonLabel(btn, "Forget Wi-Fi");
+        lv_obj_t *lbl = makeButtonLabel(btn, actionText);
+        if (!danger) lv_obj_set_style_text_color(lbl, BG_BOTTOM, 0);
     }
 }
 
 void onLongPress(lv_event_t *) {
     if (popup || !infoProvider) return;
-    showPopup("Device info", infoProvider(), "Tap to close", true);
+    showPopup("Device info", infoProvider(), "Tap to close", "Forget Wi-Fi", onResetTap, true);
 }
 
 String formatDuration(uint32_t ms) {
@@ -469,6 +472,18 @@ String formatDuration(uint32_t ms) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
     return buf;
+}
+
+// Plays the whole album of the current track, carrying on from the current point in this track.
+void onPlayAlbum(lv_event_t *) {
+    const PlayerState &s = lastState;
+    if (!s.active || s.albumId.isEmpty()) return;
+    uint32_t position = s.progressMs + (s.playing ? millis() - s.stamp : 0);
+    spotify_play_track(s.trackId, "spotify:album:" + s.albumId, position);
+    closePopup(nullptr);
+    tempMessage = "Playing the album...";
+    tempMessageUntil = millis() + 4000;
+    ui_update_player(lastState);
 }
 
 void onTrackTap(lv_event_t *) {
@@ -492,7 +507,9 @@ void onTrackTap(lv_event_t *) {
     t += "Length: " + formatDuration(s.durationMs) + (s.isExplicit ? "  Explicit" : "") + "\n";
     if (s.isrc.length()) t += "ISRC: " + s.isrc + "\n";
 
-    showPopup(cleanText(s.title, "Unknown").c_str(), cleanText(t), "Tap to close  -  Data from Spotify");
+    bool canPlayAlbum = !s.isEpisode && s.albumId.length() && s.trackId.length();
+    showPopup(cleanText(s.title, "Unknown").c_str(), cleanText(t), canPlayAlbum ? "Tap to close" : "Tap to close  -  Data from Spotify",
+              canPlayAlbum ? LV_SYMBOL_PLAY " Play album" : nullptr, onPlayAlbum);
 }
 
 void onUpNextTap(lv_event_t *) {

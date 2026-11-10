@@ -60,6 +60,7 @@ struct PlayerState {
     String title;
     String artist;
     String album;
+    String albumId;
     String albumType;
     String releaseDate;
     String isrc;
@@ -101,7 +102,8 @@ void spotify_seek(uint32_t positionMs);
 void spotify_request_list(ListKind kind, uint32_t offset = 0, const String &query = "");
 void spotify_select(ListKind kind, const String &id);
 // Plays a track; within contextUri (album or playlist) when given, so playback continues from there.
-void spotify_play_track(const String &trackId, const String &contextUri);
+// positionMs starts part-way into the track.
+void spotify_play_track(const String &trackId, const String &contextUri, uint32_t positionMs = 0);
 void spotify_get_list(ListKind kind, ListData &out);
 void spotify_get_state(PlayerState &out);
 // The next tracks in the play queue (up to 10), as "Title - Artist".
