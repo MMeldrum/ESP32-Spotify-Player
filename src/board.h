@@ -12,6 +12,7 @@ constexpr int UI_SCALE_NUM = 3;
 constexpr int UI_SCALE_DEN = 2;
 #define FONT_UI_SMALL font_ui_22
 #define FONT_UI_LARGE font_ui_30
+#define FONT_CLOCK font_clock_120  // digits and colon only
 // No RGB LED, and GPIO 0 (BOOT) is a data line of the RGB panel.
 #define BOARD_HAS_RGB_LED 0
 #define BOARD_HAS_BOOT_BUTTON 0
@@ -33,6 +34,7 @@ constexpr int UI_SCALE_NUM = 1;
 constexpr int UI_SCALE_DEN = 1;
 #define FONT_UI_SMALL font_ui_14
 #define FONT_UI_LARGE font_ui_20
+#define FONT_CLOCK font_clock_64  // digits and colon only
 #define BOARD_HAS_RGB_LED 1
 #define BOARD_HAS_BOOT_BUTTON 1
 #define BOARD_TEMP_IN_PSRAM 0

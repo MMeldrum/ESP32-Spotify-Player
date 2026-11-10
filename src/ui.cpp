@@ -12,6 +12,7 @@
 
 LV_FONT_DECLARE(FONT_UI_SMALL)
 LV_FONT_DECLARE(FONT_UI_LARGE)
+LV_FONT_DECLARE(FONT_CLOCK)
 
 namespace {
 
@@ -61,6 +62,7 @@ lv_obj_t *ddNightTo;
 lv_obj_t *sliderNight;
 lv_obj_t *lblNightBrightness;
 lv_obj_t *ddTimeZone;
+lv_obj_t *ddIdle;
 lv_obj_t *lblClockNow;
 bool nightActive = false;
 int appliedBrightness = -1;
@@ -139,6 +141,12 @@ int8_t shownLiked = -1;
 lv_obj_t *wakeCatcher;
 bool controlsShown = true;
 bool bgVisible = false;
+
+// Idle clock (screen built further down).
+lv_obj_t *screenClock = nullptr;
+void showClock();
+void updateClock();
+void syncClockBackground();
 
 bool optimisticActive() { return (int32_t)(millis() - optimisticUntil) < 0; }
 
@@ -348,12 +356,18 @@ void controlsTimerCb(lv_timer_t *) {
         display_set_screen_on(false);
         return;
     }
+    // After a while without touches the screen switches off, or shows the clock if that is chosen.
     // The setup screen stays lit: it shows what to connect to.
     if (display_screen_on() && lv_scr_act() != screenSetup && lv_disp_get_inactive_time(nullptr) >= SCREEN_OFF_MS) {
-        display_set_screen_on(false);
+        if (!g_config.idleClock) {
+            display_set_screen_on(false);
+        } else if (lv_scr_act() != screenClock) {
+            showClock();
+        }
     }
     updateNightMode(false);
     if (lv_scr_act() == screenSettings) updateSettingsClock();
+    if (lv_scr_act() == screenClock) updateClock();
     if (lv_scr_act() != screenPlayer) return;
     bool playing = lastState.active && shownPlaying;
     if (!controlsShown) {
@@ -371,6 +385,7 @@ void setBackgroundVisible(bool visible) {
         lv_obj_add_flag(bgImg, LV_OBJ_FLAG_HIDDEN);
     }
     updateDim(0);
+    syncClockBackground();
 }
 
 void closePopup(lv_event_t *) {
@@ -794,6 +809,8 @@ void onNightSetting(lv_event_t *e) {
         g_config.nightFrom = lv_dropdown_get_selected(ddNightFrom);
     } else if (target == ddNightTo) {
         g_config.nightTo = lv_dropdown_get_selected(ddNightTo);
+    } else if (target == ddIdle) {
+        g_config.idleClock = lv_dropdown_get_selected(ddIdle) == 1;
     } else if (target == ddTimeZone) {
         g_config.timeZone = lv_dropdown_get_selected(ddTimeZone);
         time_set_zone(g_config.timeZone);
@@ -816,6 +833,7 @@ void onOpenSettings(lv_event_t *) {
     lv_dropdown_set_selected(ddNightFrom, g_config.nightFrom);
     lv_dropdown_set_selected(ddNightTo, g_config.nightTo);
     lv_dropdown_set_selected(ddTimeZone, constrain(g_config.timeZone, 0, TIME_ZONE_COUNT - 1));
+    lv_dropdown_set_selected(ddIdle, g_config.idleClock ? 1 : 0);
     updateSettingsClock();
     lv_obj_scroll_to_y(screenSettings, 0, LV_ANIM_OFF);
     lv_scr_load(screenSettings);
@@ -930,6 +948,112 @@ void buildSettingsUi() {
         zones += TIME_ZONES[i].name;
     }
     ddTimeZone = makeDropdown(card, S(14), S(36), cardW - S(28), zones.c_str());
+
+    // What happens after 10 minutes without touches
+    card = makeGlass(screenSettings, S(12), S(330), cardW, S(72), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lbl = makeLabel(card, S(14), S(8), cardW - S(28), TEXT_MAIN, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "After 10 minutes idle");
+    ddIdle = makeDropdown(card, S(14), S(36), cardW - S(28), "Turn the screen off\nShow the clock");
+}
+
+// --- Idle clock ---
+
+lv_obj_t *clockBg;
+lv_obj_t *clockTime;
+lv_obj_t *clockDate;
+lv_obj_t *clockTrack;
+int clockShownMinute = -2;
+String clockShownTrack;
+
+// The clock shows the player's album art behind it (same pixels, darkened).
+void syncClockBackground() {
+    if (!screenClock) return;
+    if (lv_obj_has_flag(bgImg, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_add_flag(clockBg, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_img_set_src(clockBg, &bgDsc);
+    lv_img_set_antialias(clockBg, true);
+    lv_img_set_zoom(clockBg, lv_img_get_zoom(bgImg));
+    lv_obj_set_pos(clockBg, lv_obj_get_x(bgImg), lv_obj_get_y(bgImg));
+    lv_obj_clear_flag(clockBg, LV_OBJ_FLAG_HIDDEN);
+}
+
+void updateClock() {
+    struct tm now;
+    bool known = time_now(now);
+    int minute = known ? now.tm_yday * 1440 + now.tm_hour * 60 + now.tm_min : -1;
+    if (minute != clockShownMinute) {
+        clockShownMinute = minute;
+        if (known) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "%02d:%02d", now.tm_hour, now.tm_min);
+            lv_label_set_text(clockTime, buf);
+            char weekday[16], month[16];
+            strftime(weekday, sizeof(weekday), "%A", &now);
+            strftime(month, sizeof(month), "%B", &now);
+            snprintf(buf, sizeof(buf), "%s %d %s", weekday, now.tm_mday, month);
+            lv_label_set_text(clockDate, buf);
+        } else {
+            lv_label_set_text(clockTime, "--:--");
+            lv_label_set_text(clockDate, "Waiting for the time");
+        }
+    }
+    String track;
+    if (lastState.active) {
+        track = "\xE2\x99\xAA " + cleanText(lastState.title, "Unknown");
+        String artist = cleanText(lastState.artist);
+        if (artist.length()) track += "\n" + artist;
+    }
+    if (track != clockShownTrack) {
+        clockShownTrack = track;
+        lv_label_set_text(clockTrack, track.c_str());
+    }
+}
+
+void showClock() {
+    closePopup(nullptr);
+    clockShownMinute = -2;
+    syncClockBackground();
+    updateClock();
+    lv_scr_load(screenClock);
+}
+
+// A tap on the clock goes back to the player without pressing anything there.
+void onClockTap(lv_event_t *) {
+    lv_indev_t *indev = lv_indev_get_act();
+    if (indev) lv_indev_wait_release(indev);
+    showPlayerScreen();
+}
+
+void buildClockUi() {
+    screenClock = lv_obj_create(nullptr);
+    styleScreen(screenClock, DEFAULT_TINT);
+    lv_obj_add_event_cb(screenClock, onClockTap, LV_EVENT_PRESSED, nullptr);
+
+    clockBg = lv_img_create(screenClock);
+    lv_obj_add_flag(clockBg, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *shade = lv_obj_create(screenClock);
+    lv_obj_remove_style_all(shade);
+    lv_obj_set_size(shade, SCREEN_W, SCREEN_H);
+    lv_obj_set_style_bg_color(shade, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(shade, LV_OPA_60, 0);
+    lv_obj_clear_flag(shade, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+
+    clockTime = makeLabel(screenClock, 0, 0, 0, TEXT_MAIN, &FONT_CLOCK);
+    lv_label_set_text(clockTime, "--:--");
+    lv_obj_align(clockTime, LV_ALIGN_CENTER, 0, -S(30) - EXTRA_H / 6);
+    clockDate = makeLabel(screenClock, 0, 0, SCREEN_W - S(32), TEXT_DIM, &FONT_UI_LARGE);
+    lv_obj_set_style_text_align(clockDate, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(clockDate, "");
+    lv_obj_align_to(clockDate, clockTime, LV_ALIGN_OUT_BOTTOM_MID, 0, S(4));
+    clockTrack = makeLabel(screenClock, 0, 0, SCREEN_W - S(32), TEXT_DIM, &FONT_UI_SMALL);
+    lv_obj_set_style_text_align(clockTrack, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_height(clockTrack, 2 * lv_font_get_line_height(&FONT_UI_SMALL));
+    lv_label_set_long_mode(clockTrack, LV_LABEL_LONG_DOT);
+    lv_label_set_text(clockTrack, "");
+    lv_obj_align(clockTrack, LV_ALIGN_BOTTOM_MID, 0, -S(14));
 }
 
 void buildListUi() {
@@ -1147,6 +1271,7 @@ void ui_init() {
     buildPlayerUi();
     buildListUi();
     buildSettingsUi();
+    buildClockUi();
 }
 
 void ui_set_info_provider(String (*provider)()) {
