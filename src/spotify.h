@@ -117,3 +117,5 @@ uint32_t spotify_last_poll_ms();
 bool spotify_recently_ok(uint32_t withinMs);
 uint32_t spotify_list_version(ListKind kind);
 bool spotify_token_valid();
+// Lowest free stack of the Spotify task so far, in bytes (for the debug log).
+uint32_t spotify_stack_free();

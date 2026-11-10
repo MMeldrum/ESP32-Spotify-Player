@@ -71,7 +71,10 @@ static void checkHeap() {
     app_log(LL_DEBUG, "Heap free=%u max=%u min=%u 8bit=%u", (unsigned)freeHeap, (unsigned)maxBlock, (unsigned)ESP.getMinFreeHeap(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
     lv_mem_monitor_t mon;
     lv_mem_monitor(&mon);
-    app_log(LL_DEBUG, "LVGL used=%u%% free=%u biggest=%u", (unsigned)mon.used_pct, (unsigned)mon.free_size, (unsigned)mon.free_biggest_size);
+    app_log(LL_DEBUG, "LVGL used=%u%% (%u of %u B) biggest free=%u", (unsigned)mon.used_pct, (unsigned)(mon.total_size - mon.free_size),
+            (unsigned)mon.total_size, (unsigned)mon.free_biggest_size);
+    // Stack high-water marks (bytes never used): a task close to 0 is the likely cause of a crash or reset.
+    app_log(LL_DEBUG, "Stack free: loop=%u spotify=%u", (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)spotify_stack_free());
     if (freeHeap < LOW_HEAP_BYTES) app_log(LL_WARN, "Low heap: free=%u max=%u", (unsigned)freeHeap, (unsigned)maxBlock);
 }
 

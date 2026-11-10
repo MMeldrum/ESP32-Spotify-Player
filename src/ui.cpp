@@ -139,7 +139,7 @@ lv_obj_t *controlsPanel;
 lv_obj_t *textBox;
 // How far the track text slides down when the controls are hidden: to just above the screen's bottom edge.
 // Square screens have room for a second row of controls (shuffle, like, repeat) above the progress bar.
-constexpr bool EXTRA_ROW = EXTRA_H > 0;
+constexpr bool EXTRA_ROW = BOARD_HAS_EXTRA_CONTROLS;
 constexpr int ROW_OFF = EXTRA_ROW ? S(28) : 0;
 constexpr int PANEL_H = S(64) + ROW_OFF;
 constexpr int PANEL_Y = SCREEN_H - S(6) - PANEL_H;
@@ -199,6 +199,27 @@ String cleanText(const String &in, const char *fallback = "") {
     }
     return out.length() ? out : String(fallback);
 }
+
+// ui_update_player runs four times a second; cleaning text means a heap allocation and a glyph lookup per
+// character, so each field keeps its cleaned text and is only cleaned again when the raw text changes.
+struct CleanCache {
+    String raw;
+    String clean;
+    bool valid = false;
+};
+
+const String &cachedClean(CleanCache &c, const String &raw, const char *fallback = "") {
+    if (!c.valid || raw != c.raw) {
+        c.raw = raw;
+        c.clean = cleanText(raw, fallback);
+        c.valid = true;
+    }
+    return c.clean;
+}
+
+CleanCache cacheTitle, cacheArtist, cacheUpNext, cachePrevious, cacheMessage;
+const String EMPTY_TEXT;
+const String NOTHING_PLAYING = "Nothing playing";
 
 void applyGlass(lv_obj_t *o, int radius, lv_opa_t fill) {
     lv_obj_set_style_bg_color(o, lv_color_white(), 0);
@@ -824,12 +845,13 @@ void updateNightMode(bool force) {
     }
 }
 
+int settingsShownMinute = -2;
+
 void updateSettingsClock() {
-    static int shownMinute = -2;
     struct tm now;
     int minute = time_now(now) ? now.tm_hour * 60 + now.tm_min : -1;
-    if (minute == shownMinute) return;
-    shownMinute = minute;
+    if (minute == settingsShownMinute) return;
+    settingsShownMinute = minute;
     char buf[24];
     if (minute < 0) {
         snprintf(buf, sizeof(buf), "Time not set yet");
@@ -879,7 +901,10 @@ void onNightSetting(lv_event_t *e) {
     updateNightMode(true);
 }
 
+void buildSettingsUi();
+
 void onOpenSettings(lv_event_t *) {
+    if (!screenSettings) buildSettingsUi();
     lv_slider_set_value(sliderBrightness, g_config.screenBrightness, LV_ANIM_OFF);
     setPercentLabel(lblBrightness, g_config.screenBrightness);
     lv_slider_set_value(sliderNight, g_config.nightBrightness, LV_ANIM_OFF);
@@ -962,9 +987,20 @@ lv_obj_t *makeDropdown(lv_obj_t *parent, int x, int y, int w, const char *option
     return dd;
 }
 
+// The Settings screen is built when opened and deleted once another screen replaces it: it is rarely shown,
+// and its ~40 objects and dropdown lists would otherwise sit in the LVGL heap (only 30 KB on the CYD).
+void onSettingsUnloaded(lv_event_t *) {
+    lv_obj_del_async(screenSettings);
+    screenSettings = nullptr;
+    sliderBrightness = lblBrightness = switchNight = ddNightFrom = ddNightTo = nullptr;
+    sliderNight = lblNightBrightness = ddTimeZone = lblClockNow = ddIdle = ddIdleTime = switchNeighbours = nullptr;
+}
+
 void buildSettingsUi() {
     screenSettings = lv_obj_create(nullptr);
     styleScreen(screenSettings, DEFAULT_TINT);
+    lv_obj_add_event_cb(screenSettings, onSettingsUnloaded, LV_EVENT_SCREEN_UNLOADED, nullptr);
+    settingsShownMinute = -2;
     // Scrolls on screens too short for all the cards (the CYD).
     lv_obj_add_flag(screenSettings, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(screenSettings, LV_DIR_VER);
@@ -1091,8 +1127,8 @@ void updateClock() {
     }
     String track;
     if (lastState.active) {
-        track = "\xE2\x99\xAA " + cleanText(lastState.title, "Unknown");
-        String artist = cleanText(lastState.artist);
+        track = "\xE2\x99\xAA " + cachedClean(cacheTitle, lastState.title, "Unknown");
+        const String &artist = cachedClean(cacheArtist, lastState.artist);
         if (artist.length()) track += "\n" + artist;
     }
     if (track != clockShownTrack) {
@@ -1101,8 +1137,18 @@ void updateClock() {
     }
 }
 
+void buildClockUi();
+
+// Like Settings, the clock screen only exists while it is shown.
+void onClockUnloaded(lv_event_t *) {
+    lv_obj_del_async(screenClock);
+    screenClock = nullptr;
+}
+
 void showClock() {
     closePopup(nullptr);
+    if (!screenClock) buildClockUi();
+    clockShownTrack = "";
     clockShownMinute = -2;
     syncClockBackground();
     updateClock();
@@ -1119,6 +1165,7 @@ void onClockTap(lv_event_t *) {
 void buildClockUi() {
     screenClock = lv_obj_create(nullptr);
     styleScreen(screenClock, DEFAULT_TINT);
+    lv_obj_add_event_cb(screenClock, onClockUnloaded, LV_EVENT_SCREEN_UNLOADED, nullptr);
     lv_obj_add_event_cb(screenClock, onClockTap, LV_EVENT_PRESSED, nullptr);
 
     clockBg = lv_img_create(screenClock);
@@ -1376,8 +1423,6 @@ void ui_init() {
     buildSetupUi();
     buildPlayerUi();
     buildListUi();
-    buildSettingsUi();
-    buildClockUi();
 }
 
 void ui_set_info_provider(String (*provider)()) {
@@ -1432,8 +1477,8 @@ static void setLine(lv_obj_t *lbl, const String &text) {
 void ui_update_player(const PlayerState &s) {
     lastState = s;
 
-    String title = s.active ? cleanText(s.title, "Unknown") : String("Nothing playing");
-    String artist = s.active ? cleanText(s.artist) : String();
+    const String &title = s.active ? cachedClean(cacheTitle, s.title, "Unknown") : NOTHING_PLAYING;
+    const String &artist = s.active ? cachedClean(cacheArtist, s.artist) : EMPTY_TEXT;
     if (title != shownTitle) {
         shownTitle = title;
         lv_label_set_text(lblTitle, title.c_str());
@@ -1445,21 +1490,21 @@ void ui_update_player(const PlayerState &s) {
 
     if (lblUpNext) {
         bool show = s.active && g_config.showNeighbours;
-        String upNext = show && s.upNext.length() ? "Next: " + cleanText(s.upNext) : String();
+        const String &upNext = show ? cachedClean(cacheUpNext, s.upNext) : EMPTY_TEXT;
         if (upNext != shownUpNext) {
             shownUpNext = upNext;
-            setLine(lblUpNext, upNext);
+            setLine(lblUpNext, upNext.length() ? "Next: " + upNext : EMPTY_TEXT);
         }
-        String previous = show && s.previous.length() ? "Previous: " + cleanText(s.previous) : String();
+        const String &previous = show ? cachedClean(cachePrevious, s.previous) : EMPTY_TEXT;
         if (previous != shownPrevious) {
             shownPrevious = previous;
-            setLine(lblPrevious, previous);
+            setLine(lblPrevious, previous.length() ? "Previous: " + previous : EMPTY_TEXT);
         }
     }
 
     bool tempActive = (int32_t)(millis() - tempMessageUntil) < 0;
     const String &rawMessage = tempActive ? tempMessage : (hintText.length() ? hintText : s.message);
-    String message = cleanText(rawMessage);
+    const String &message = cachedClean(cacheMessage, rawMessage);
     if (message != shownMessage) {
         shownMessage = message;
         setLine(lblMessage, message);

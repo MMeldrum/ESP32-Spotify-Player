@@ -25,6 +25,7 @@ SemaphoreHandle_t netLock;
 SemaphoreHandle_t stateLock;
 QueueHandle_t cmdQueue;
 bool taskStarted = false;
+TaskHandle_t taskHandle = nullptr;
 
 PlayerState shared;
 SemaphoreHandle_t artLock;
@@ -471,7 +472,8 @@ bool downloadArt(const String &url) {
 void checkLiked(const PlayerState &s) {
     likedForId = s.trackId;
     likedValue = -1;
-    if (s.isEpisode || s.trackId.isEmpty() || likeNeedsLogin) return;
+    // Only boards with a Like button need it: saves a request per track on the CYD.
+    if (!BOARD_HAS_EXTRA_CONTROLS || s.isEpisode || s.trackId.isEmpty() || likeNeedsLogin) return;
     HttpResult r = apiCall("GET", "/me/library/contains?uris=spotify%3Atrack%3A" + s.trackId);
     if (r.code == 200) {
         JsonDocument doc;
@@ -587,7 +589,9 @@ void pollPlayer() {
         shared = s;
         xSemaphoreGive(stateLock);
         if (s.trackId != likedForId) checkLiked(s);
-        if (s.active && (s.trackId != queueForId || millis() - queueFetchedAt > QUEUE_REFRESH_MS)) {
+        // Previous/next lines: only where they are shown (two requests every 30 s otherwise wasted).
+        if (BOARD_HAS_EXTRA_CONTROLS && g_config.showNeighbours && s.active &&
+            (s.trackId != queueForId || millis() - queueFetchedAt > QUEUE_REFRESH_MS)) {
             fetchQueue(s);
             fetchPrevious(s);
         }
@@ -1006,7 +1010,7 @@ void spotify_init() {
 void spotify_start() {
     if (taskStarted) return;
     taskStarted = true;
-    xTaskCreatePinnedToCore(spotifyTask, "spotify", 12288, nullptr, 1, nullptr, 0);
+    xTaskCreatePinnedToCore(spotifyTask, "spotify", 12288, nullptr, 1, &taskHandle, 0);
 }
 
 bool spotify_exchange_code(const String &code, const String &verifier, String &error) {
@@ -1109,6 +1113,8 @@ void spotify_get_list(ListKind kind, ListData &out) {
 uint32_t spotify_last_poll_ms() { return lastPollMs; }
 
 bool spotify_recently_ok(uint32_t withinMs) { return everOk && millis() - lastOkMs < withinMs; }
+
+uint32_t spotify_stack_free() { return taskHandle ? uxTaskGetStackHighWaterMark(taskHandle) : 0; }
 
 bool spotify_token_valid() { return !accessToken.isEmpty() && !reached(tokenExpiresAt); }
 

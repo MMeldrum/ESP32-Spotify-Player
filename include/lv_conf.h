@@ -14,7 +14,8 @@
 #define LV_MEM_POOL_INCLUDE <esp32-hal-psram.h>
 #define LV_MEM_POOL_ALLOC ps_malloc
 #else
-#define LV_MEM_SIZE (30U * 1024U)
+// Measured on the 4848S040 (same objects plus a few): ~22 KB at rest, ~33 KB with the Settings screen open.
+#define LV_MEM_SIZE (40U * 1024U)
 #endif
 
 #define LV_TICK_CUSTOM 1
@@ -22,6 +23,8 @@
 #define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())
 
 #define LV_USE_LOG 0
+// newlib's memcpy/memset copy whole words; LVGL's own versions are slower for large image blits.
+#define LV_MEMCPY_MEMSET_STD 1
 
 // Montserrat only supplies the LV_SYMBOL glyphs; the UI fonts in src/fonts fall back to it.
 #if defined(BOARD_ESP32_4848S040)

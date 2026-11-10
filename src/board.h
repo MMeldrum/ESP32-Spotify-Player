@@ -24,6 +24,8 @@ constexpr int ART_BUFFER_W = SCREEN_W;
 constexpr int DEFAULT_ART_SIZE = 640;
 // default_16MB.csv has two app slots, so firmware can be updated from the web page.
 #define BOARD_HAS_OTA 1
+// The square screen has room for shuffle/like/repeat and the previous/next track lines.
+#define BOARD_HAS_EXTRA_CONTROLS 1
 
 #else
 
@@ -43,5 +45,6 @@ constexpr int ART_BUFFER_W = 120;
 constexpr int DEFAULT_ART_SIZE = 300;
 // huge_app.csv has a single app slot: no updates over Wi-Fi.
 #define BOARD_HAS_OTA 0
+#define BOARD_HAS_EXTRA_CONTROLS 0
 
 #endif
