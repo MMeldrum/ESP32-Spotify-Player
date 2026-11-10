@@ -455,6 +455,8 @@ void showPopup(const char *title, const String &body, const char *footer, const 
         lv_obj_set_height(lblB, cardH - S(82));
         lv_obj_set_width(lblF, S(110));
         lv_obj_t *btn = makeGlassButton(card, cardW - S(156), cardH - S(40), S(140), S(30), actionCb, nullptr);
+        // Footer text centred on the button's height.
+        lv_obj_set_y(lblF, cardH - S(40) + (S(30) - lv_font_get_line_height(&FONT_UI_SMALL)) / 2);
         lv_obj_set_style_bg_color(btn, danger ? lv_color_hex(0xB3261E) : curAccent, 0);
         lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
         lv_obj_t *lbl = makeButtonLabel(btn, actionText);
@@ -1023,9 +1025,12 @@ void buildSettingsUi() {
     // What happens after 10 minutes without touches
     card = makeGlass(screenSettings, S(12), S(330), cardW, S(72), S(18));
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
-    lbl = makeLabel(card, S(14), S(8), S(100), TEXT_MAIN, &FONT_UI_SMALL);
-    lv_label_set_text(lbl, "When idle for");
     ddIdleTime = makeDropdown(card, cardW - S(124), S(4), S(110), "1 minute\n2 minutes\n5 minutes\n10 minutes\n15 minutes\n30 minutes\n1 hour");
+    // One line, centred on the dropdown next to it.
+    lbl = makeLabel(card, S(14), 0, cardW - S(124) - S(22), TEXT_MAIN, &FONT_UI_SMALL);
+    makeSingleLine(lbl, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, "When idle for");
+    lv_obj_set_y(lbl, S(4) + (S(28) - lv_font_get_line_height(&FONT_UI_SMALL)) / 2);
     ddIdle = makeDropdown(card, S(14), S(36), cardW - S(28), "Turn the screen off\nShow the clock");
 
     // Previous and next track lines (square screens only)
