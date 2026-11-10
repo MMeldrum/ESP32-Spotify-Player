@@ -80,6 +80,8 @@ struct PlayerState {
     int8_t liked = -1;
     // The login predates the Liked Songs permission: Like needs a new Spotify login from the web page.
     bool likeNeedsLogin = false;
+    // First track in the play queue ("Title - Artist"), empty when unknown or the queue is empty.
+    String upNext;
     uint32_t stamp = 0;
 };
 
@@ -95,6 +97,8 @@ void spotify_request_list(ListKind kind, uint32_t offset = 0, const String &quer
 void spotify_select(ListKind kind, const String &id);
 void spotify_get_list(ListKind kind, ListData &out);
 void spotify_get_state(PlayerState &out);
+// The next tracks in the play queue (up to 10), as "Title - Artist".
+void spotify_get_queue(std::vector<String> &out);
 bool spotify_art_begin_read();
 // The downloaded art between begin_read and end_read, or nullptr when it is in the SPOTIFY_ART_PATH file.
 const uint8_t *spotify_art_data(size_t &size);

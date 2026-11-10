@@ -206,6 +206,13 @@ HttpResult httpDo(const char *method, const String &url, const char *contentType
 }
 
 String volumeRefusedBy;
+// The play queue, fetched on each track change and every QUEUE_REFRESH_MS.
+constexpr uint32_t QUEUE_REFRESH_MS = 30000;
+constexpr size_t QUEUE_MAX = 10;
+String queueForId;
+uint32_t queueFetchedAt = 0;
+std::vector<String> queueItems;  // guarded by stateLock
+
 // Liked Songs status of the current track, fetched once per track.
 String likedForId;
 int8_t likedValue = -1;
@@ -481,6 +488,42 @@ void checkLiked(const PlayerState &s) {
     xSemaphoreGive(stateLock);
 }
 
+DeserializationError parseSaved(JsonDocument &doc, JsonDocument &filter);
+
+// Reads the next tracks of the play queue. The response holds full track objects, so it is streamed to
+// the temp buffer and filtered.
+void fetchQueue(const PlayerState &s) {
+    queueForId = s.trackId;
+    queueFetchedAt = millis();
+    HttpResult r = apiCall("GET", "/me/player/queue", "", LIST_TMP_PATH);
+    if (r.code != 200 || r.savedBytes <= 0) {
+        if (r.code != 429) app_log(LL_WARN, "Queue: HTTP %d", r.code);
+        return;
+    }
+    JsonDocument filter;
+    filter["queue"][0]["name"] = true;
+    filter["queue"][0]["artists"][0]["name"] = true;
+    filter["queue"][0]["show"]["name"] = true;
+    JsonDocument doc;
+    DeserializationError err = parseSaved(doc, filter);
+    if (err) {
+        app_log(LL_WARN, "Queue JSON error: %s", err.c_str());
+        return;
+    }
+    std::vector<String> items;
+    for (JsonObject t : doc["queue"].as<JsonArray>()) {
+        if (items.size() >= QUEUE_MAX) break;
+        String line = (const char *)(t["name"] | "");
+        const char *by = t["artists"][0]["name"] | (const char *)(t["show"]["name"] | "");
+        if (by[0]) line += String(" - ") + by;
+        if (line.length()) items.push_back(line);
+    }
+    xSemaphoreTake(stateLock, portMAX_DELAY);
+    queueItems = std::move(items);
+    if (shared.trackId == s.trackId) shared.upNext = queueItems.empty() ? String() : queueItems[0];
+    xSemaphoreGive(stateLock);
+}
+
 void pollPlayer() {
     uint32_t t0 = millis();
     HttpResult r = apiCall("GET", "/me/player?additional_types=track,episode");
@@ -500,10 +543,16 @@ void pollPlayer() {
         if (s.deviceName == volumeRefusedBy) s.volumeAllowed = false;
         s.likeNeedsLogin = likeNeedsLogin;
         if (s.trackId == likedForId) s.liked = likedValue;
+        if (s.trackId == queueForId) {
+            xSemaphoreTake(stateLock, portMAX_DELAY);
+            if (!queueItems.empty()) s.upNext = queueItems[0];
+            xSemaphoreGive(stateLock);
+        }
         xSemaphoreTake(stateLock, portMAX_DELAY);
         shared = s;
         xSemaphoreGive(stateLock);
         if (s.trackId != likedForId) checkLiked(s);
+        if (s.active && (s.trackId != queueForId || millis() - queueFetchedAt > QUEUE_REFRESH_MS)) fetchQueue(s);
         backoffStep = 0;
         app_log(LL_DEBUG, "Now: %s - %s (%s)", s.artist.c_str(), s.title.c_str(), s.playing ? "playing" : "paused");
 
@@ -933,6 +982,12 @@ uint32_t spotify_last_poll_ms() { return lastPollMs; }
 bool spotify_recently_ok(uint32_t withinMs) { return everOk && millis() - lastOkMs < withinMs; }
 
 bool spotify_token_valid() { return !accessToken.isEmpty() && !reached(tokenExpiresAt); }
+
+void spotify_get_queue(std::vector<String> &out) {
+    xSemaphoreTake(stateLock, portMAX_DELAY);
+    out = queueItems;
+    xSemaphoreGive(stateLock);
+}
 
 void spotify_get_state(PlayerState &out) {
     xSemaphoreTake(stateLock, portMAX_DELAY);

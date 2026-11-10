@@ -45,6 +45,8 @@ lv_obj_t *dimLayer;
 lv_obj_t *lblTitle;
 lv_obj_t *lblArtist;
 lv_obj_t *lblMessage;
+lv_obj_t *lblUpNext = nullptr;  // square screens only
+String shownUpNext;
 lv_obj_t *lblVolume;
 lv_obj_t *barProgress;
 lv_obj_t *lblElapsed;
@@ -487,6 +489,18 @@ void onTrackTap(lv_event_t *) {
     if (s.isrc.length()) t += "ISRC: " + s.isrc + "\n";
 
     showPopup(cleanText(s.title, "Unknown").c_str(), cleanText(t), "Tap to close  -  Data from Spotify");
+}
+
+void onUpNextTap(lv_event_t *) {
+    if (popup) return;
+    std::vector<String> queue;
+    spotify_get_queue(queue);
+    String body;
+    for (size_t i = 0; i < queue.size(); i++) {
+        body += String(i + 1) + ". " + cleanText(queue[i], "(unsupported name)") + "\n";
+    }
+    if (body.isEmpty()) body = "The queue is empty.";
+    showPopup("Up next", body, "Tap to close");
 }
 
 void buildSetupUi() {
@@ -1164,6 +1178,13 @@ void buildPlayerUi() {
     lblMessage = makeTextBlock(textBox, S(36), TEXT_WARN, &FONT_UI_SMALL);
     lblTitle = makeTextBlock(textBox, titleH, TEXT_MAIN, &FONT_UI_LARGE);
     lblArtist = makeTextBlock(textBox, S(20), TEXT_DIM, &FONT_UI_SMALL);
+    if (EXTRA_ROW) {
+        lblUpNext = makeTextBlock(textBox, S(20), TEXT_DIM, &FONT_UI_SMALL);
+        lv_obj_set_style_text_opa(lblUpNext, LV_OPA_70, 0);
+        lv_obj_set_style_pad_top(lblUpNext, S(4), 0);
+        lv_obj_add_flag(lblUpNext, (lv_obj_flag_t)(LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE));
+        lv_obj_add_event_cb(lblUpNext, onUpNextTap, LV_EVENT_CLICKED, nullptr);
+    }
     lv_obj_add_flag(lblMessage, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(lblArtist, LV_OBJ_FLAG_HIDDEN);
     for (lv_obj_t *lbl : {lblTitle, lblArtist}) {
@@ -1347,6 +1368,14 @@ void ui_update_player(const PlayerState &s) {
     if (artist != shownArtist) {
         shownArtist = artist;
         setLine(lblArtist, artist);
+    }
+
+    if (lblUpNext) {
+        String upNext = s.active && s.upNext.length() ? "Next: " + cleanText(s.upNext) : String();
+        if (upNext != shownUpNext) {
+            shownUpNext = upNext;
+            setLine(lblUpNext, upNext);
+        }
     }
 
     bool tempActive = (int32_t)(millis() - tempMessageUntil) < 0;
