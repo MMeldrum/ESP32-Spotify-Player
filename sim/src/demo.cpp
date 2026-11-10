@@ -2,6 +2,7 @@
 // (480x480, 30 fps) and the captions as "start_ms end_ms text" lines. sim/make_demo_video.py turns them into
 // a video. Coordinates are screen pixels on the 480x480 ESP32-4848S040 layout.
 #include "board.h"
+#include <algorithm>
 #include "config.h"
 #include "ui.h"
 #include <cmath>
@@ -16,6 +17,7 @@ extern uint32_t g_virtualMs;
 void fake_spotify_tick();
 void display_set_scripted_touch(bool (*touch)(int *x, int *y));
 void display_frame_rgb(uint8_t *out);
+bool display_snapshot(const char *path);
 void display_present();
 
 namespace {
@@ -273,6 +275,27 @@ int run_demo() {
     fclose(caps);
 
     display_set_scripted_touch(scriptedTouch);
+    // SIM_SHOTS="ms:name,ms:name" saves the screen (no finger) at those video times as <SIM_SHOTS_DIR>/<name>.bmp.
+    struct Shot {
+        uint32_t at;
+        std::string name;
+    };
+    std::vector<Shot> shots;
+    if (const char *spec = getenv("SIM_SHOTS")) {
+        std::string list = spec;
+        size_t pos = 0;
+        while (pos < list.size()) {
+            size_t end = list.find(',', pos);
+            std::string item = list.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+            size_t colon = item.find(':');
+            if (colon != std::string::npos) shots.push_back({(uint32_t)atoi(item.c_str()), item.substr(colon + 1)});
+            if (end == std::string::npos) break;
+            pos = end + 1;
+        }
+    }
+    std::sort(shots.begin(), shots.end(), [](const Shot &a, const Shot &b) { return a.at < b.at; });
+    const char *shotDir = getenv("SIM_SHOTS_DIR") ? getenv("SIM_SHOTS_DIR") : ".";
+    size_t nextShot = 0;
     std::vector<uint8_t> rgb(SCREEN_W * SCREEN_H * 3);
     uint32_t offset = 0, lastTick = 0;
     size_t nextAction = 0, nextSkip = 0;
@@ -295,6 +318,10 @@ int run_demo() {
             }
         }
         lv_timer_handler();
+        while (nextShot < shots.size() && shots[nextShot].at <= videoMs) {
+            std::string path = std::string(shotDir) + "/" + shots[nextShot++].name + ".bmp";
+            display_snapshot(path.c_str());
+        }
         if (frame % 2 == 0) display_present();
         display_frame_rgb(rgb.data());
         drawFinger(rgb.data());
