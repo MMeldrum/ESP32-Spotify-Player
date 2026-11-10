@@ -490,6 +490,9 @@ void showPopup(const char *title, const String &body, const char *footer, const 
 
 void onLongPress(lv_event_t *) {
     if (popup || !infoProvider) return;
+    // The finger is still down: without this its release would click the new popup and close it at once.
+    lv_indev_t *indev = lv_indev_get_act();
+    if (indev) lv_indev_wait_release(indev);
     showPopup("Device info", infoProvider(), "Tap to close", "Forget Wi-Fi", onResetTap, true);
 }
 
