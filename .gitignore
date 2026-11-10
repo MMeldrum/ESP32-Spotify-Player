@@ -5,3 +5,6 @@ FeatureRequest.md
 
 # macOS Finder metadata
 .DS_Store
+
+# Rendered demo videos (python3 sim/make_demo_video.py)
+demo-video/

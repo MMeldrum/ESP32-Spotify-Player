@@ -271,6 +271,8 @@ pio run -e simulator -t exec             # build and start; close the window to 
 - **Options** (environment variables): `SIM_ZOOM=2` window scale; `SIM_IDLE_CLOCK=1 SIM_IDLE_MINUTES=1` show the clock after a minute; `SIM_SNAPSHOT=shot.bmp` (with `SIM_SNAPSHOT_MS=3000`) saves the screen to a file and quits, for stills.
 - **Album art:** the covers in `sim/art/` are original abstract images made by `python3 sim/make_demo_art.py`. Replace `1.jpg` to `5.jpg` with your own (baseline JPEG, ideally 640x640) to change them; the demo tracks are listed in [sim/src/fake_spotify.cpp](sim/src/fake_spotify.cpp).
 
+- **Demo video:** `python3 sim/make_demo_video.py demo.mp4` (needs ffmpeg and Pillow) records a scripted tour of every feature with captions, straight from the simulator at 30 fps. The script is in [sim/src/demo.cpp](sim/src/demo.cpp): timed taps, swipes and drags at screen coordinates, plus the caption for each part.
+
 The `simulator` environment is not in `default_envs`, so `pio run` and the GitHub build only build the two boards. The simulator code is in `sim/`: small stand-ins for the Arduino core and the firmware modules the UI talks to, an SDL2 display, and the fake Spotify service.
 
 ## Project layout

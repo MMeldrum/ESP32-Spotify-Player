@@ -10,6 +10,8 @@
 void display_present();
 bool display_snapshot(const char *path);
 void fake_spotify_tick();
+int run_demo();
+extern bool g_virtualClock;
 
 static String simInfo() {
     return "Simulator (no hardware)\nIP: 192.168.1.42\nSSID: Demo Wi-Fi (ch 6)\nSignal: -52 dBm (excellent)\n"
@@ -22,11 +24,16 @@ int main(int, char **) {
     if (getenv("SIM_IDLE_MINUTES")) g_config.idleMinutes = atoi(getenv("SIM_IDLE_MINUTES"));
     if (getenv("SIM_IDLE_CLOCK")) g_config.idleClock = true;
 
+    // SIM_DEMO=1 records the scripted demo (see demo.cpp); it runs on a virtual clock from the start.
+    bool demo = getenv("SIM_DEMO") != nullptr;
+    if (demo) g_virtualClock = true;
+
     display_init();
     display_set_brightness(g_config.screenBrightness);
     ui_init();
     ui_set_info_provider(simInfo);
     show_player_screen();
+    if (demo) return run_demo();
 
     // SIM_SNAPSHOT=file.bmp saves the screen after SIM_SNAPSHOT_MS (default 3000) and quits.
     const char *snapshot = getenv("SIM_SNAPSHOT");
@@ -53,7 +60,7 @@ int main(int, char **) {
         display_present();
         if (snapshot && millis() > snapshotAt) {
             bool ok = display_snapshot(snapshot);
-            printf("Snapshot %s: %s\n", snapshot, ok ? "saved" : "failed");
+            fprintf(stderr, "Snapshot %s: %s\n", snapshot, ok ? "saved" : "failed");
             return ok ? 0 : 1;
         }
     }

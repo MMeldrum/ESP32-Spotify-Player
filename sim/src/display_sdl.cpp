@@ -18,6 +18,7 @@ lv_indev_drv_t indevDrv;
 
 int brightness = 100;
 bool screenOn = true;
+bool (*scriptedTouch)(int *x, int *y) = nullptr;
 bool swallowTouch = false;
 void (*touchWakeCb)() = nullptr;
 
@@ -37,12 +38,20 @@ void flushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *pixels) {
 
 void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
     int x, y;
-    uint32_t buttons = SDL_GetMouseState(&x, &y);
-    int ww, wh;
-    SDL_GetWindowSize(window, &ww, &wh);
-    data->point.x = constrain(x * SCREEN_W / ww, 0, SCREEN_W - 1);
-    data->point.y = constrain(y * SCREEN_H / wh, 0, SCREEN_H - 1);
-    bool pressed = (buttons & SDL_BUTTON_LMASK) && (SDL_GetMouseFocus() == window);
+    bool pressed;
+    if (scriptedTouch) {
+        // Demo recording: the script is the finger.
+        pressed = scriptedTouch(&x, &y);
+        data->point.x = constrain(x, 0, SCREEN_W - 1);
+        data->point.y = constrain(y, 0, SCREEN_H - 1);
+    } else {
+        uint32_t buttons = SDL_GetMouseState(&x, &y);
+        int ww, wh;
+        SDL_GetWindowSize(window, &ww, &wh);
+        data->point.x = constrain(x * SCREEN_W / ww, 0, SCREEN_W - 1);
+        data->point.y = constrain(y * SCREEN_H / wh, 0, SCREEN_H - 1);
+        pressed = (buttons & SDL_BUTTON_LMASK) && (SDL_GetMouseFocus() == window);
+    }
     data->state = pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
     // As on the board: while the screen is off, the first touch only wakes it.
     if (!screenOn && pressed) {
@@ -92,6 +101,19 @@ void display_present() {
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, nullptr, nullptr);
     SDL_RenderPresent(renderer);
+}
+
+void display_set_scripted_touch(bool (*touch)(int *x, int *y)) { scriptedTouch = touch; }
+
+// The screen as RGB888 with the backlight applied (what a viewer would see), for recording.
+void display_frame_rgb(uint8_t *out) {
+    int level = screenOn ? 255 * brightness * brightness / 10000 : 0;
+    for (int i = 0; i < SCREEN_W * SCREEN_H; i++) {
+        uint16_t p = frame[i];
+        out[i * 3] = ((p >> 11) & 0x1F) * 255 / 31 * level / 255;
+        out[i * 3 + 1] = ((p >> 5) & 0x3F) * 255 / 63 * level / 255;
+        out[i * 3 + 2] = (p & 0x1F) * 255 / 31 * level / 255;
+    }
 }
 
 // Saves what the window shows (backlight included) as a 24-bit BMP, for stills and checks.
