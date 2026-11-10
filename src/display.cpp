@@ -29,6 +29,7 @@ constexpr int TOUCH_SCL = 45;
 constexpr uint8_t GT911_ADDRS[2] = {0x5D, 0x14};
 constexpr uint16_t GT911_STATUS = 0x814E;
 constexpr uint16_t GT911_POINT1 = 0x8150;
+constexpr uint32_t TOUCH_STALE_MS = 400;
 constexpr uint32_t PCLK_HZ = 12000000;
 constexpr bool DIRECT_MODE = true;
 
@@ -163,14 +164,24 @@ void flushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *pixels) {
 void readTouch(lv_indev_data_t *data) {
     static int16_t lastX = 0, lastY = 0;
     static bool lastPressed = false;
+    static uint32_t lastReportMs = 0;
     data->point.x = lastX;
     data->point.y = lastY;
-    data->state = lastPressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
-    if (!touchAddr) return;
+    if (!touchAddr) {
+        data->state = LV_INDEV_STATE_REL;
+        return;
+    }
 
-    // Bit 7 is set once a new report is ready; between reports keep the previous state.
+    // Bit 7 is set once a new report is ready; between reports keep the previous state. While a finger is
+    // down the GT911 reports every ~10 ms, so a long silence means the release report was missed: without
+    // this, LVGL would see a press that never ends (no fading controls, no idle clock, no screen off).
     uint8_t status = 0;
-    if (!gt911Read(GT911_STATUS, &status, 1) || !(status & 0x80)) return;
+    if (!gt911Read(GT911_STATUS, &status, 1) || !(status & 0x80)) {
+        if (lastPressed && millis() - lastReportMs > TOUCH_STALE_MS) lastPressed = false;
+        data->state = lastPressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+        return;
+    }
+    lastReportMs = millis();
     uint8_t buf[4];
     lastPressed = (status & 0x0F) && gt911Read(GT911_POINT1, buf, sizeof(buf));
     uint8_t clear = 0;
