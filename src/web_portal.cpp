@@ -1076,6 +1076,7 @@ void handleUpdateChunk(AsyncWebServerRequest *request, const String &, size_t in
             updateError = "Another update is already running.";
         } else if (checkImageStart(data, len, updateError)) {
             if (Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+                updateLastChunk = millis();
                 updateActive = true;
                 updatePercent = 0;
                 updateCancel = false;
@@ -1168,8 +1169,10 @@ void web_portal_begin() {
 
 void web_portal_loop() {
     // Cancel an upload whose connection dropped or that stopped sending.
+    // Read the last chunk time before the clock: a chunk arriving in between must not look like a negative age.
+    uint32_t lastChunk = updateLastChunk;
     if (updateActive && updatePercent < 100 &&
-        (updateCancel || millis() - updateLastChunk > UPDATE_STALL_MS)) {
+        (updateCancel || (int32_t)(millis() - lastChunk) > (int32_t)UPDATE_STALL_MS)) {
         app_log(LL_WARN, "Firmware update cancelled: upload %s", updateCancel ? "disconnected" : "stalled");
         Update.abort();
         updateActive = false;
