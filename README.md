@@ -27,7 +27,7 @@ The ESP32 does not play audio itself. It controls an existing Spotify Connect de
   - **Show previous & next** (ESP32-4848S040): show or hide the previous and next track lines.
 - **Shuffle, repeat and like** buttons (ESP32-4848S040): a second row of controls that light up in the album colour. Like adds or removes the track from your Liked Songs.
 - **Previous and next track** (ESP32-4848S040): the track played before this one is shown above the title, the next one in the queue below the artist. Tap "Next" for the next ten queued tracks; tap "Previous" for your **recently played** tracks, and tap one of those to play it again (in its playlist or album when Spotify allows).
-- Devices that do not allow remote volume control (most phones) show a message instead of a fake volume change.
+- When the playback device does not allow remote volume control (most phones), the volume buttons are greyed out and inactive.
 - **Device picker**: transfer playback to any available Spotify Connect device.
 - **Playlists**: pinned playlists are shown first, the rest can be loaded in pages of 50 ("Load more").
 - **Track details popup** (tap title or artist): album, release date, track number, length, explicit flag, ISRC. **Play album** plays the whole album, carrying on from the current point in this track.
@@ -240,7 +240,7 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 - Spotify no longer returns its own algorithmic and editorial playlists (Daily Mix, radio, Discover Weekly, ...) to development-mode apps. They do not appear in lists. You can try pinning one by ID, but loading its name or playing it is not guaranteed to work.
 - The Web API has no composer or credits data, and popularity and label fields were removed in 2026.
 - Since February 2026 development-mode apps use the generic `/me/library` endpoints for Liked Songs; the old `/me/tracks` endpoints answer 403. Recommendations, audio analysis and Spotify's Canvas videos are not available to these apps.
-- Many devices (most phones, some speakers) do not allow remote volume control; Spotify refuses the request and the device shows a message.
+- Many devices (most phones, some speakers) do not allow remote volume control; the volume buttons are then greyed out. A device that claims support but still refuses is detected on the first press.
 - The "Previous" line comes from Spotify's recently played list, which only includes a track once it has played for a while, so it can lag a few seconds behind a skip.
 - Memory is tight on the ESP32 without PSRAM. The firmware keeps a single TLS connection to Spotify, retries failed connections, and streams large responses through temporary flash files. If you see `connection refused` in the debug log, it was a TLS memory allocation failure that is retried automatically.
 - TLS certificates are **not verified** (`setInsecure()`). Anyone able to intercept your traffic could read the access token. Pin the Spotify root certificate if you need protection against that.

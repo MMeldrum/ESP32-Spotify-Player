@@ -55,6 +55,9 @@ lv_obj_t *barProgress;
 lv_obj_t *lblElapsed;
 lv_obj_t *lblTotal;
 lv_obj_t *btnPlay;
+lv_obj_t *btnVolDown;
+lv_obj_t *btnVolUp;
+bool shownVolumeAllowed = true;
 lv_obj_t *lblPlayPause;
 
 lv_obj_t *screenList = nullptr;
@@ -1301,7 +1304,7 @@ void buildPlayerUi() {
     lv_obj_set_style_text_align(lblTotal, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(lblTotal, "0:00");
 
-    makeControl(panel, 9, 46, CMD_VOL_DOWN, LV_SYMBOL_VOLUME_MID);
+    btnVolDown = makeControl(panel, 9, 46, CMD_VOL_DOWN, LV_SYMBOL_VOLUME_MID);
     makeControl(panel, 64, 46, CMD_PREV, LV_SYMBOL_PREV);
     btnPlay = makeControl(panel, 119, 62, CMD_PLAY_PAUSE, LV_SYMBOL_PLAY);
     lv_obj_set_style_bg_opa(btnPlay, LV_OPA_COVER, 0);
@@ -1309,7 +1312,9 @@ void buildPlayerUi() {
     lblPlayPause = lv_obj_get_child(btnPlay, 0);
     lv_obj_set_style_text_color(lblPlayPause, BG_BOTTOM, 0);
     makeControl(panel, 190, 46, CMD_NEXT, LV_SYMBOL_NEXT);
-    makeControl(panel, 245, 46, CMD_VOL_UP, LV_SYMBOL_VOLUME_MAX);
+    btnVolUp = makeControl(panel, 245, 46, CMD_VOL_UP, LV_SYMBOL_VOLUME_MAX);
+    // Greyed out and inert while the playback device refuses remote volume changes.
+    for (lv_obj_t *btn : {btnVolDown, btnVolUp}) lv_obj_set_style_opa(btn, LV_OPA_30, LV_STATE_DISABLED);
 
     wakeCatcher = lv_obj_create(screenPlayer);
     lv_obj_set_pos(wakeCatcher, 0, 0);
@@ -1458,6 +1463,18 @@ void ui_update_player(const PlayerState &s) {
     if (message != shownMessage) {
         shownMessage = message;
         setLine(lblMessage, message);
+    }
+
+    bool volumeAllowed = !s.active || s.volumeAllowed;
+    if (volumeAllowed != shownVolumeAllowed) {
+        shownVolumeAllowed = volumeAllowed;
+        for (lv_obj_t *btn : {btnVolDown, btnVolUp}) {
+            if (volumeAllowed) {
+                lv_obj_clear_state(btn, LV_STATE_DISABLED);
+            } else {
+                lv_obj_add_state(btn, LV_STATE_DISABLED);
+            }
+        }
     }
 
     if (!optimisticActive()) {
