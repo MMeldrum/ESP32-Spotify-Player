@@ -2,3 +2,6 @@ plan.md
 .pio/
 FeatureRequest.md
 /.vscode
+
+# macOS Finder metadata
+.DS_Store
