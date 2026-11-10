@@ -256,6 +256,23 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 - Clock shows `--:--` or night mode never starts: the time has not been fetched yet (needs internet), or the time zone is wrong (Settings).
 - Locked out of the web interface: use any username with the password. If you forgot it, hold the BOOT button for 3 seconds to remove the password (this also forgets the connected Wi-Fi network).
 
+## Desktop simulator (for demos)
+
+The player UI also runs on a Mac (or Linux) in a 480x480 window, using the real [src/ui.cpp](src/ui.cpp) with fake Spotify data. That makes it easy to record a clean demo video: no glare, any frame rate, and a repeatable "playlist".
+
+```bash
+brew install sdl2                        # Linux: sudo apt install libsdl2-dev
+pio run -e simulator -t exec             # build and start; close the window to quit
+```
+
+- The mouse is your finger: click to tap, drag to swipe or move a slider, hold for a long press.
+- Everything works as on the ESP32-4848S040: controls, swipes, shuffle/like/repeat, previous/next, queue and recently played, devices (the "Phone" device shows the greyed-out volume buttons), playlists, track details with Play album, Settings (brightness and night mode dim the window), and the idle clock in your Mac's time zone. Settings are kept only until you quit.
+- **Recording:** press Cmd+Shift+5 on macOS, choose *Record Selected Window* and click the simulator. For a sharper video on a large screen start it with `SIM_ZOOM=2` (or 3).
+- **Options** (environment variables): `SIM_ZOOM=2` window scale; `SIM_IDLE_CLOCK=1 SIM_IDLE_MINUTES=1` show the clock after a minute; `SIM_SNAPSHOT=shot.bmp` (with `SIM_SNAPSHOT_MS=3000`) saves the screen to a file and quits, for stills.
+- **Album art:** the covers in `sim/art/` are original abstract images made by `python3 sim/make_demo_art.py`. Replace `1.jpg` to `5.jpg` with your own (baseline JPEG, ideally 640x640) to change them; the demo tracks are listed in [sim/src/fake_spotify.cpp](sim/src/fake_spotify.cpp).
+
+The `simulator` environment is not in `default_envs`, so `pio run` and the GitHub build only build the two boards. The simulator code is in `sim/`: small stand-ins for the Arduino core and the firmware modules the UI talks to, an SDL2 display, and the fake Spotify service.
+
 ## Project layout
 
 ```
@@ -271,6 +288,7 @@ src/display.*         TFT / RGB panel, touch and backlight drivers for LVGL
 src/board.h           Per-board constants (screen size, fonts, features)
 src/clock_time.*      Internet time and time zones
 src/fonts/            Generated LVGL fonts
+sim/                  Desktop simulator (SDL2) with fake Spotify data
 ```
 
 The fonts in `src/fonts` are generated with `lv_font_conv` from Montserrat and DejaVu Sans (see the header of each file for the exact command). The `font_clock_*` fonts contain only digits, the colon and the dash, for the idle clock.

@@ -26,6 +26,11 @@
 // newlib's memcpy/memset copy whole words; LVGL's own versions are slower for large image blits.
 #define LV_MEMCPY_MEMSET_STD 1
 
+#ifdef SIMULATOR
+// The desktop simulator decodes album art with LVGL's copy of TJpgDec.
+#define LV_USE_SJPG 1
+#endif
+
 // Montserrat only supplies the LV_SYMBOL glyphs; the UI fonts in src/fonts fall back to it.
 #if defined(BOARD_ESP32_4848S040)
 #define LV_FONT_MONTSERRAT_22 1
