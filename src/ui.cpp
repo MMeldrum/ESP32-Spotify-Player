@@ -45,8 +45,11 @@ lv_obj_t *dimLayer;
 lv_obj_t *lblTitle;
 lv_obj_t *lblArtist;
 lv_obj_t *lblMessage;
-lv_obj_t *lblUpNext = nullptr;  // square screens only
+lv_obj_t *lblUpNext = nullptr;    // square screens only
+lv_obj_t *lblPrevious = nullptr;  // square screens only
 String shownUpNext;
+String shownPrevious;
+void onOpenRecent(lv_event_t *);
 lv_obj_t *lblVolume;
 lv_obj_t *barProgress;
 lv_obj_t *lblElapsed;
@@ -66,6 +69,7 @@ lv_obj_t *lblNightBrightness;
 lv_obj_t *ddTimeZone;
 lv_obj_t *ddIdle;
 lv_obj_t *ddIdleTime;
+lv_obj_t *switchNeighbours = nullptr;
 lv_obj_t *lblClockNow;
 bool nightActive = false;
 int appliedBrightness = -1;
@@ -640,7 +644,9 @@ void renderList() {
         } else if (listErrorText.length()) {
             status = listErrorText;
         } else {
-            status = listKind == LIST_DEVICES ? "No devices found. Open Spotify on a device." : "No playlists found.";
+            status = listKind == LIST_DEVICES  ? "No devices found. Open Spotify on a device."
+                     : listKind == LIST_RECENT ? "Nothing played recently."
+                                               : "No playlists found.";
         }
     }
     lv_label_set_text(lblListStatus, status.c_str());
@@ -687,6 +693,13 @@ void onRowTap(lv_event_t *e) {
         return;
     }
     if (idx >= (int)listItems.size()) return;
+    if (listKind == LIST_RECENT) {
+        spotify_play_track(listItems[idx].id, listItems[idx].context);
+        tempMessage = "Starting track...";
+        tempMessageUntil = millis() + 4000;
+        showPlayerScreen();
+        return;
+    }
     spotify_select(listKind, listItems[idx].id);
     tempMessage = listKind == LIST_DEVICES ? "Switching device..." : "Starting playlist...";
     tempMessageUntil = millis() + 4000;
@@ -707,7 +720,7 @@ void openList(ListKind kind) {
     playlistNext = 0;
     playlistTotal = 0;
     listLoading = false;
-    lv_label_set_text(lblListTitle, kind == LIST_DEVICES ? "Devices" : "Playlists");
+    lv_label_set_text(lblListTitle, kind == LIST_DEVICES ? "Devices" : kind == LIST_RECENT ? "Recently played" : "Playlists");
 
     if (kind == LIST_PLAYLISTS) {
         for (const Pin &pin : config_get_pins()) {
@@ -718,7 +731,7 @@ void openList(ListKind kind) {
             listItems.push_back(std::move(item));
         }
     }
-    if (kind == LIST_DEVICES || listItems.empty()) {
+    if (kind != LIST_PLAYLISTS || listItems.empty()) {
         listLoading = true;
         spotify_request_list(kind, 0);
     }
@@ -731,7 +744,7 @@ void applyListResult(const ListData &data) {
     listLoading = false;
     if (data.status == LIST_ERROR) {
         listErrorText = data.error;
-    } else if (listKind == LIST_DEVICES) {
+    } else if (listKind != LIST_PLAYLISTS) {
         listItems = data.items;
         listErrorText = "";
     } else {
@@ -757,6 +770,7 @@ void applyListResult(const ListData &data) {
 
 void onOpenDevices(lv_event_t *) { openList(LIST_DEVICES); }
 void onOpenPlaylists(lv_event_t *) { openList(LIST_PLAYLISTS); }
+void onOpenRecent(lv_event_t *) { openList(LIST_RECENT); }
 void onBack(lv_event_t *) { showPlayerScreen(); }
 
 void setPercentLabel(lv_obj_t *lbl, int value) {
@@ -821,7 +835,10 @@ void onBrightness(lv_event_t *e) {
 
 void onNightSetting(lv_event_t *e) {
     lv_obj_t *target = lv_event_get_target(e);
-    if (target == switchNight) {
+    if (target == switchNeighbours) {
+        g_config.showNeighbours = lv_obj_has_state(switchNeighbours, LV_STATE_CHECKED);
+        ui_update_player(lastState);
+    } else if (target == switchNight) {
         g_config.nightMode = lv_obj_has_state(switchNight, LV_STATE_CHECKED);
     } else if (target == ddNightFrom) {
         g_config.nightFrom = lv_dropdown_get_selected(ddNightFrom);
@@ -845,6 +862,13 @@ void onOpenSettings(lv_event_t *) {
     setPercentLabel(lblBrightness, g_config.screenBrightness);
     lv_slider_set_value(sliderNight, g_config.nightBrightness, LV_ANIM_OFF);
     setPercentLabel(lblNightBrightness, g_config.nightBrightness);
+    if (switchNeighbours) {
+        if (g_config.showNeighbours) {
+            lv_obj_add_state(switchNeighbours, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(switchNeighbours, LV_STATE_CHECKED);
+        }
+    }
     if (g_config.nightMode) {
         lv_obj_add_state(switchNight, LV_STATE_CHECKED);
     } else {
@@ -878,6 +902,17 @@ lv_obj_t *makeSettingsSlider(lv_obj_t *card, int y, int minValue) {
     lv_obj_add_event_cb(slider, onBrightness, LV_EVENT_VALUE_CHANGED, nullptr);
     lv_obj_add_event_cb(slider, onBrightness, LV_EVENT_RELEASED, nullptr);
     return slider;
+}
+
+lv_obj_t *makeSwitch(lv_obj_t *parent, int x, int y) {
+    lv_obj_t *sw = lv_switch_create(parent);
+    lv_obj_set_pos(sw, x, y);
+    lv_obj_set_size(sw, S(46), S(24));
+    lv_obj_set_style_bg_color(sw, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sw, DEFAULT_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, onNightSetting, LV_EVENT_VALUE_CHANGED, nullptr);
+    return sw;
 }
 
 lv_obj_t *makeDropdown(lv_obj_t *parent, int x, int y, int w, const char *options) {
@@ -936,13 +971,7 @@ void buildSettingsUi() {
     lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lbl = makeLabel(card, S(14), S(9), S(180), TEXT_MAIN, &FONT_UI_SMALL);
     lv_label_set_text(lbl, "\xE2\x98\xBE  Night mode");
-    switchNight = lv_switch_create(card);
-    lv_obj_set_pos(switchNight, cardW - S(60), S(6));
-    lv_obj_set_size(switchNight, S(46), S(24));
-    lv_obj_set_style_bg_color(switchNight, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(switchNight, LV_OPA_30, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(switchNight, DEFAULT_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_add_event_cb(switchNight, onNightSetting, LV_EVENT_VALUE_CHANGED, nullptr);
+    switchNight = makeSwitch(card, cardW - S(60), S(6));
 
     static char hours[24 * 6 + 1];
     char *p = hours;
@@ -981,6 +1010,15 @@ void buildSettingsUi() {
     lv_label_set_text(lbl, "When idle for");
     ddIdleTime = makeDropdown(card, cardW - S(124), S(4), S(110), "1 minute\n2 minutes\n5 minutes\n10 minutes\n15 minutes\n30 minutes\n1 hour");
     ddIdle = makeDropdown(card, S(14), S(36), cardW - S(28), "Turn the screen off\nShow the clock");
+
+    // Previous and next track lines (square screens only)
+    if (EXTRA_ROW) {
+        card = makeGlass(screenSettings, S(12), S(410), cardW, S(40), S(18));
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+        lbl = makeLabel(card, S(14), S(9), cardW - S(90), TEXT_MAIN, &FONT_UI_SMALL);
+        lv_label_set_text(lbl, "Show previous & next");
+        switchNeighbours = makeSwitch(card, cardW - S(60), S(8));
+    }
 }
 
 // --- Idle clock ---
@@ -1175,6 +1213,14 @@ void buildPlayerUi() {
     lv_obj_set_style_pad_row(textBox, S(2), 0);
 
     int titleH = max(S(50), 2 * (int)lv_font_get_line_height(&FONT_UI_LARGE));
+    if (EXTRA_ROW) {
+        // The track played before this one; tapping it opens the recently played list.
+        lblPrevious = makeTextBlock(textBox, S(20), TEXT_DIM, &FONT_UI_SMALL);
+        lv_obj_set_style_text_opa(lblPrevious, LV_OPA_70, 0);
+        lv_obj_set_style_pad_bottom(lblPrevious, S(4), 0);
+        lv_obj_add_flag(lblPrevious, (lv_obj_flag_t)(LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE));
+        lv_obj_add_event_cb(lblPrevious, onOpenRecent, LV_EVENT_CLICKED, nullptr);
+    }
     lblMessage = makeTextBlock(textBox, S(36), TEXT_WARN, &FONT_UI_SMALL);
     lblTitle = makeTextBlock(textBox, titleH, TEXT_MAIN, &FONT_UI_LARGE);
     lblArtist = makeTextBlock(textBox, S(20), TEXT_DIM, &FONT_UI_SMALL);
@@ -1371,10 +1417,16 @@ void ui_update_player(const PlayerState &s) {
     }
 
     if (lblUpNext) {
-        String upNext = s.active && s.upNext.length() ? "Next: " + cleanText(s.upNext) : String();
+        bool show = s.active && g_config.showNeighbours;
+        String upNext = show && s.upNext.length() ? "Next: " + cleanText(s.upNext) : String();
         if (upNext != shownUpNext) {
             shownUpNext = upNext;
             setLine(lblUpNext, upNext);
+        }
+        String previous = show && s.previous.length() ? "Previous: " + cleanText(s.previous) : String();
+        if (previous != shownPrevious) {
+            shownPrevious = previous;
+            setLine(lblPrevious, previous);
         }
     }
 

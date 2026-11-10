@@ -8,7 +8,7 @@
 
 ![The RGB LED on the back of the board changes colour with the album art, shown with a dark and a light cover](images/Player-Dark-Light.jpeg)
 
-A standalone Spotify remote with a touch screen for the **ESP32-2432S028R** ("Cheap Yellow Display", CYD) and the **ESP32-4848S040** (4.0" 480x480). It shows what is playing on any of your Spotify devices and lets you control it: play/pause, skip, seek, volume, switch device and start playlists. The album art is used as a blurred full-screen background.
+A standalone Spotify remote with a touch screen for the **ESP32-2432S028R** ("Cheap Yellow Display", CYD) and the **ESP32-4848S040** (4.0" 480x480). It shows what is playing on any of your Spotify devices and lets you control it: play/pause, skip, seek, volume, switch device and start playlists. The album art fills the screen behind the controls.
 
 The ESP32 does not play audio itself. It controls an existing Spotify Connect device (phone, computer, speaker) through the Spotify Web API.
 
@@ -18,22 +18,34 @@ The ESP32 does not play audio itself. It controls an existing Spotify Connect de
 
 - Now playing screen with title, artist, progress bar and album art as full-screen background; accent colours follow the album art.
 - Play/pause, previous/next, volume up/down, and **seek by tapping the progress bar**.
+- **Swipe** left for the next track, right for the previous one.
+- **Controls fade out** after 5 seconds of playback without touches; the track text drops to the bottom of the screen. The first tap brings them back without pressing anything.
+- **Settings screen** on the device (gear button):
+  - **Brightness** (35-100%; the minimum keeps the screen readable).
+  - **Night mode**: a dimmer brightness between two hours of your choice, using internet time and a **time zone** list with automatic daylight saving.
+  - **When idle**: after 1 minute to 1 hour without touches (default 10), either switch the screen off or show a **clock** (large time, date and the current track over the darkened album art). A touch, or a new track when the screen is off, brings the player back.
+  - **Show previous & next** (ESP32-4848S040): show or hide the previous and next track lines.
+- **Shuffle, repeat and like** buttons (ESP32-4848S040): a second row of controls that light up in the album colour. Like adds or removes the track from your Liked Songs.
+- **Previous and next track** (ESP32-4848S040): the track played before this one is shown above the title, the next one in the queue below the artist. Tap "Next" for the next ten queued tracks; tap "Previous" for your **recently played** tracks, and tap one of those to play it again (in its playlist or album when Spotify allows).
+- Devices that do not allow remote volume control (most phones) show a message instead of a fake volume change.
 - **Device picker**: transfer playback to any available Spotify Connect device.
 - **Playlists**: pinned playlists are shown first, the rest can be loaded in pages of 50 ("Load more").
 - **Track details popup** (tap title or artist): album, release date, track number, length, explicit flag, ISRC.
 - **Device info popup** (long press anywhere): IP address, Wi-Fi signal, MAC, uptime, heap, Spotify status. Useful for troubleshooting.
-- **RGB LED ambient light**: the RGB LED on the back of the board fades to the accent colour of the current album art and turns off when nothing is playing. Brightness (0-100%, default 40, 0 = off) is set on the web interface.
+- **Firmware updates over Wi-Fi** (ESP32-4848S040): upload new firmware on the **Firmware** tab of the web interface.
+- **RGB LED ambient light** (CYD): the RGB LED on the back of the board fades to the accent colour of the current album art and turns off when nothing is playing. Brightness (0-100%, default 40, 0 = off) is set on the web interface.
 - Web interface for setup, with tabs:
   - **Wi-Fi**: network credentials.
   - **Spotify**: client ID, login (PKCE, no client secret needed), album art resolution and RGB LED brightness.
   - **Playlists**: pin playlists by searching your library, searching all of Spotify, or pasting a playlist URL/ID. Pins can be renamed and reordered.
   - **Debug**: in-browser log with verbose mode and a copy button. Logs are only kept in RAM and shown in the browser.
+  - **Firmware** (ESP32-4848S040): shows the installed build and installs a new one.
   - **Security**: optional password for the web interface (none by default).
 - Characters outside the built-in font (emoji, CJK) are dropped instead of drawn as boxes. Latin, Cyrillic, Greek and common symbols are supported.
 
 ### Web interface
 
-The device setup pages work on a phone or computer: Wi-Fi (with known networks), Spotify login and album art, playlists, debug log and the optional web password.
+The device setup pages work on a phone or computer: Wi-Fi (with known networks), Spotify login and album art, playlists, debug log, firmware updates and the optional web password.
 
 ![Device setup web interface: Wi-Fi, Spotify, Playlists, Debug and Security pages](images/Device%20Setup.jpeg)
 
@@ -51,7 +63,7 @@ The pin configuration is set with build flags in [platformio.ini](platformio.ini
 
 ### ESP32-4848S040 (4.0" 480x480)
 
-Also supported: the Guition **ESP32-4848S040** (ESP32-S3, 16 MB flash, 8 MB PSRAM, 4.0" 480x480 ST7701S RGB panel, GT911 capacitive touch). Build the `esp32-4848s040` PlatformIO environment, or flash `firmware-esp32-4848s040-merged.bin`. The same UI is scaled up 1.5x with larger fonts; the extra height of the square screen gives the track title more room.
+Also supported: the Guition **ESP32-4848S040** (ESP32-S3, 16 MB flash, 8 MB PSRAM, 4.0" 480x480 ST7701S RGB panel, GT911 capacitive touch). Build the `esp32-4848s040` PlatformIO environment, or flash `firmware-esp32-4848s040-merged.bin`. The same UI is scaled up 1.5x with larger fonts; the extra height of the square screen is used for a second row of controls (shuffle, like, repeat), the previous and next track lines and a two-line title. Album art is drawn 1:1 at 480x480 from the 640 px image (the default resolution on this board).
 
 | Function | GPIO |
 |---|---|
@@ -65,6 +77,9 @@ Differences from the CYD:
 
 - There is no RGB LED, so the LED setting is hidden in the web interface.
 - GPIO 0 (BOOT) is a data line of the display, so the BOOT-button reset is not available. Instead, **Forget Wi-Fi** in the device info popup (long press) also removes the web password.
+- Firmware can be updated over Wi-Fi (two app slots in `default_16MB.csv`); see [Updating over Wi-Fi](#updating-over-wi-fi).
+- Album art and large API responses are kept in PSRAM instead of flash files. A flash write briefly stalls the PSRAM the RGB panel is scanned from, which makes the picture jump, so the screen is also kept dark during a firmware update.
+- The backlight is dimmed with 1 kHz PWM (the backlight driver does not respond to higher frequencies).
 - The display is set up with `st7701_type9_init_operations` from the Arduino_GFX library. If the screen stays black or shows wrong colours, some panel batches need `st7701_type1_init_operations` instead (in [src/display.cpp](src/display.cpp)).
 
 Board variants: some CYD boards use an ST7789 display instead (often the ones with two USB ports) and may need a different driver and display inversion (`ST7789_DRIVER`, `TFT_INVERSION_ON`). If colours look inverted on an ILI9341 board, add `-DTFT_INVERSION_ON` to `build_flags`. Touch orientation and calibration are in [src/display.cpp](src/display.cpp).
@@ -135,6 +150,16 @@ For the ESP32-4848S040 use `--chip esp32s3 merge_bin --flash_mode keep --flash_f
 
 The CYD firmware uses the `huge_app.csv` partition table (3 MB app, ~0.9 MB LittleFS, no OTA).
 
+### Updating over Wi-Fi
+
+On the ESP32-4848S040, once a firmware with this feature is installed, later versions can be installed from the web interface:
+
+1. Open `http://<device-ip>` and go to the **Firmware** tab. It shows the installed build date.
+2. Choose the **app-only** file: `firmware-esp32-4848s040-update.bin` from a release, or `.pio/build/esp32-4848s040/firmware.bin` from your own build. The merged file (`...-merged.bin`) is for USB flashing only and is refused.
+3. Press **Upload & install**. The screen stays dark while the update is written; the device then restarts into the new firmware. Settings, the Spotify login and pins are kept.
+
+Files for another chip or merged images are rejected, the web password (if set) is checked, and an upload that is cut off is cancelled so the device keeps running the old firmware. From the command line: `curl -F firmware=@firmware.bin http://<device-ip>/update`.
+
 ## Configuration
 
 ### 1. Connect to Wi-Fi
@@ -184,22 +209,29 @@ Open the device's web interface on your home network (`http://<device-ip>`), go 
 2. Approve the access in the Spotify page. The browser then fails to open `127.0.0.1:8080`; this is expected.
 3. Copy the full URL from the address bar, paste it in the field and press **2. Save Spotify Config**.
 
-The PKCE challenge is generated on the ESP32 and only the refresh token is stored (in flash). Requested scopes: `user-read-playback-state`, `user-modify-playback-state`, `playlist-read-private`. After updating from an older version that lacked a scope, simply log in again.
+The PKCE challenge is generated on the ESP32 and only the refresh token is stored (in flash). Requested scopes: `user-read-playback-state`, `user-modify-playback-state`, `playlist-read-private`, `user-library-read` and `user-library-modify` (Like), `user-read-recently-played` (previous track and recently played). After updating from an older version that lacked a scope, simply log in again; until then the features that need it say so on screen.
 
 ### 4. Optional settings
 
-- **Album art resolution** (Spotify tab): 64, 300 (default) or 640 px. Images are downloaded to a temporary flash file, decoded, and deleted again.
+- **Album art resolution** (Spotify tab): 64, 300 or 640 px (default 300 on the CYD, 640 on the ESP32-4848S040). On the CYD images are downloaded to a temporary flash file, decoded, and deleted again; the ESP32-4848S040 keeps them in PSRAM.
 - **Pinned playlists** (Playlists tab): search "My playlists", search Spotify, or paste a playlist URL or ID. Pinned playlists appear first on the display and play without any lookup.
+- **Brightness, night mode, time zone, idle behaviour** and **previous/next lines**: on the device's **Settings** screen (gear button). Set the time zone first; night mode and the clock use it.
 
 ## Using the device
 
 | Action | Result |
 |---|---|
 | Tap play / prev / next / volume buttons | Control playback on the active device |
+| Swipe left / right | Next / previous track |
 | Tap the progress bar | Seek to that position |
+| Tap shuffle / heart / repeat (ESP32-4848S040) | Toggle shuffle, like or unlike the track, cycle repeat (off, context, track) |
+| Tap anywhere while the controls are hidden | Show the controls |
 | Tap the speaker icon (top right) | Choose the playback device |
 | Tap the list icon (top right) | Open playlists (pinned first, then "Load more") |
+| Tap the gear icon (top) | Settings |
 | Tap title or artist | Track details |
+| Tap "Next: ..." / "Previous: ..." (ESP32-4848S040) | Up next queue / recently played list |
+| Tap the clock | Back to the player |
 | Long press (0.7 s) anywhere else | Device and network info |
 | Tap a popup | Close it |
 
@@ -207,6 +239,9 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 
 - Spotify no longer returns its own algorithmic and editorial playlists (Daily Mix, radio, Discover Weekly, ...) to development-mode apps. They do not appear in lists. You can try pinning one by ID, but loading its name or playing it is not guaranteed to work.
 - The Web API has no composer or credits data, and popularity and label fields were removed in 2026.
+- Since February 2026 development-mode apps use the generic `/me/library` endpoints for Liked Songs; the old `/me/tracks` endpoints answer 403. Recommendations, audio analysis and Spotify's Canvas videos are not available to these apps.
+- Many devices (most phones, some speakers) do not allow remote volume control; Spotify refuses the request and the device shows a message.
+- The "Previous" line comes from Spotify's recently played list, which only includes a track once it has played for a while, so it can lag a few seconds behind a skip.
 - Memory is tight on the ESP32 without PSRAM. The firmware keeps a single TLS connection to Spotify, retries failed connections, and streams large responses through temporary flash files. If you see `connection refused` in the debug log, it was a TLS memory allocation failure that is retried automatically.
 - TLS certificates are **not verified** (`setInsecure()`). Anyone able to intercept your traffic could read the access token. Pin the Spotify root certificate if you need protection against that.
 - The setup access point is open, and the web interface has no password until you set one on the **Security** tab. Even with a password, the connection is plain HTTP (no encryption), so use it on a network you trust.
@@ -217,7 +252,8 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 - Open the **Debug** tab, enable *Verbose logging* and use *Copy* to share the log. Entries show HTTP status codes, timing and free heap.
 - After an unexpected restart the log starts with the reset reason (panic, watchdog, brownout). A weak USB supply can cause brownouts.
 - Nothing playing or "No active device": start playback once in the Spotify app, then pick the device from the device list.
-- Insufficient permission when loading playlists: log in again on the Spotify tab.
+- Insufficient permission (HTTP 403, "Insufficient client scope") when loading playlists, liking a track or opening recently played: log in again on the Spotify tab to grant the newer permissions.
+- Clock shows `--:--` or night mode never starts: the time has not been fetched yet (needs internet), or the time zone is wrong (Settings).
 - Locked out of the web interface: use any username with the password. If you forgot it, hold the BOOT button for 3 seconds to remove the password (this also forgets the connected Wi-Fi network).
 
 ## Project layout
@@ -231,15 +267,17 @@ src/ui.*              LVGL screens, popups, lists, album art
 src/web_portal.*      Web interface and JSON endpoints
 src/config.*          Settings and pinned playlists (LittleFS)
 src/app_log.*         In-RAM log shown in the browser
-src/display.*         TFT and touch drivers for LVGL
+src/display.*         TFT / RGB panel, touch and backlight drivers for LVGL
+src/board.h           Per-board constants (screen size, fonts, features)
+src/clock_time.*      Internet time and time zones
 src/fonts/            Generated LVGL fonts
 ```
 
-The fonts in `src/fonts` are generated with `lv_font_conv` from Montserrat and DejaVu Sans (see the header of each file for the exact command).
+The fonts in `src/fonts` are generated with `lv_font_conv` from Montserrat and DejaVu Sans (see the header of each file for the exact command). The `font_clock_*` fonts contain only digits, the colon and the dash, for the idle clock.
 
 ## Credits and licence
 
-Built with [LVGL](https://lvgl.io/), [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI), [TJpg_Decoder](https://github.com/Bodmer/TJpg_Decoder), [ArduinoJson](https://arduinojson.org/), [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer) and [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen).
+Built with [LVGL](https://lvgl.io/), [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI), [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX), [TJpg_Decoder](https://github.com/Bodmer/TJpg_Decoder), [ArduinoJson](https://arduinojson.org/), [ESPAsyncWebServer](https://github.com/ESP32Async/ESPAsyncWebServer) and [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen).
 
 Case: [CYD Desk Buddy for Bambu Lab](https://makerworld.com/en/models/2787810-cyd-desk-buddy-for-bambu-lab-home-assistant#profileId-3099382) by [annaglyph](https://makerworld.com/en/@annaglyph).
 

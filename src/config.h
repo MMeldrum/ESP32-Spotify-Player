@@ -31,6 +31,7 @@ struct AppConfig {
     // When idle, show a clock instead of switching the screen off.
     bool idleClock = false;
     int idleMinutes = 10;
+    bool showNeighbours = true;  // previous and next track lines on the player
     String webPassHash;
     String webPassSalt;
     String refreshToken;

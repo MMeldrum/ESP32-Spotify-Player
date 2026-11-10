@@ -38,7 +38,7 @@ struct CmdMsg {
     char arg[64];
 };
 
-ListData lists[5];
+ListData lists[LIST_KIND_COUNT];
 
 String accessToken;
 uint32_t tokenExpiresAt = 0;
@@ -212,6 +212,8 @@ constexpr size_t QUEUE_MAX = 10;
 String queueForId;
 uint32_t queueFetchedAt = 0;
 std::vector<String> queueItems;  // guarded by stateLock
+String previousLine;             // guarded by stateLock
+bool recentNeedsLogin = false;
 
 // Liked Songs status of the current track, fetched once per track.
 String likedForId;
@@ -524,6 +526,36 @@ void fetchQueue(const PlayerState &s) {
     xSemaphoreGive(stateLock);
 }
 
+// The last track played before the current one, from the recently played list (a track only appears there
+// once it has played for a while, so this catches up within a refresh).
+void fetchPrevious(const PlayerState &s) {
+    if (recentNeedsLogin) return;
+    HttpResult r = apiCall("GET", "/me/player/recently-played?limit=3", "", LIST_TMP_PATH);
+    if (r.code == 403) {
+        recentNeedsLogin = true;
+        return;
+    }
+    if (r.code != 200 || r.savedBytes <= 0) return;
+    JsonDocument filter;
+    filter["items"][0]["track"]["id"] = true;
+    filter["items"][0]["track"]["name"] = true;
+    filter["items"][0]["track"]["artists"][0]["name"] = true;
+    JsonDocument doc;
+    if (parseSaved(doc, filter)) return;
+    String line;
+    for (JsonObject o : doc["items"].as<JsonArray>()) {
+        if (s.trackId == (const char *)(o["track"]["id"] | "")) continue;
+        line = (const char *)(o["track"]["name"] | "");
+        const char *artist = o["track"]["artists"][0]["name"] | "";
+        if (artist[0]) line += String(" - ") + artist;
+        break;
+    }
+    xSemaphoreTake(stateLock, portMAX_DELAY);
+    previousLine = line;
+    if (shared.trackId == s.trackId) shared.previous = line;
+    xSemaphoreGive(stateLock);
+}
+
 void pollPlayer() {
     uint32_t t0 = millis();
     HttpResult r = apiCall("GET", "/me/player?additional_types=track,episode");
@@ -546,13 +578,17 @@ void pollPlayer() {
         if (s.trackId == queueForId) {
             xSemaphoreTake(stateLock, portMAX_DELAY);
             if (!queueItems.empty()) s.upNext = queueItems[0];
+            s.previous = previousLine;
             xSemaphoreGive(stateLock);
         }
         xSemaphoreTake(stateLock, portMAX_DELAY);
         shared = s;
         xSemaphoreGive(stateLock);
         if (s.trackId != likedForId) checkLiked(s);
-        if (s.active && (s.trackId != queueForId || millis() - queueFetchedAt > QUEUE_REFRESH_MS)) fetchQueue(s);
+        if (s.active && (s.trackId != queueForId || millis() - queueFetchedAt > QUEUE_REFRESH_MS)) {
+            fetchQueue(s);
+            fetchPrevious(s);
+        }
         backoffStep = 0;
         app_log(LL_DEBUG, "Now: %s - %s (%s)", s.artist.c_str(), s.title.c_str(), s.playing ? "playing" : "paused");
 
@@ -606,6 +642,8 @@ int listKindOfCmd(uint8_t cmd) {
         return LIST_WEB_LOOKUP;
     case CMD_SEARCH_PLAYLISTS:
         return LIST_WEB_SEARCH;
+    case CMD_LIST_RECENT:
+        return LIST_RECENT;
     default:
         return -1;
     }
@@ -673,6 +711,69 @@ void fetchList(ListKind kind, uint32_t offset) {
         items.push_back(std::move(item));
     }
     finishList(kind, LIST_READY, "", std::move(items), offset, offset + array.size(), doc["total"] | 0);
+}
+
+// Recently played tracks, newest first, without repeats. Full track objects, so streamed and filtered.
+void fetchRecent() {
+    HttpResult r = apiCall("GET", "/me/player/recently-played?limit=40", "", LIST_TMP_PATH);
+    if (r.code != 200 || r.savedBytes <= 0) {
+        finishList(LIST_RECENT, LIST_ERROR, listError(r), {});
+        return;
+    }
+    JsonDocument filter;
+    filter["items"][0]["track"]["id"] = true;
+    filter["items"][0]["track"]["name"] = true;
+    filter["items"][0]["track"]["artists"][0]["name"] = true;
+    filter["items"][0]["context"]["uri"] = true;
+    JsonDocument doc;
+    if (DeserializationError err = parseSaved(doc, filter)) {
+        app_log(LL_ERROR, "Recent JSON error: %s", err.c_str());
+        finishList(LIST_RECENT, LIST_ERROR, "Unexpected response from Spotify", {});
+        return;
+    }
+    std::vector<ListItem> items;
+    for (JsonObject o : doc["items"].as<JsonArray>()) {
+        const char *id = o["track"]["id"] | "";
+        if (!id[0]) continue;
+        bool seen = false;
+        for (const ListItem &item : items) seen = seen || item.id == id;
+        if (seen) continue;
+        ListItem item;
+        item.id = id;
+        item.name = (const char *)(o["track"]["name"] | "");
+        const char *artist = o["track"]["artists"][0]["name"] | "";
+        if (artist[0]) item.name += String(" - ") + artist;
+        item.context = (const char *)(o["context"]["uri"] | "");
+        items.push_back(std::move(item));
+        if (items.size() >= 20) break;
+    }
+    uint32_t count = items.size();
+    finishList(LIST_RECENT, LIST_READY, "", std::move(items), 0, 0, count);
+}
+
+// arg is "trackId|contextUri". Artist contexts cannot start at a given track, so those play the track alone,
+// as does any context Spotify refuses.
+HttpResult playTrack(const char *arg) {
+    String a = arg;
+    int bar = a.indexOf('|');
+    String trackUri = "spotify:track:" + (bar < 0 ? a : a.substring(0, bar));
+    String context = bar < 0 ? String() : a.substring(bar + 1);
+    if (context.startsWith("spotify:artist:")) context = "";
+    JsonDocument body;
+    String json;
+    if (context.length()) {
+        body["context_uri"] = context;
+        body["offset"]["uri"] = trackUri;
+        serializeJson(body, json);
+        HttpResult r = apiCall("PUT", "/me/player/play", json);
+        if (r.code < 400 || r.code == 401 || r.code == 429) return r;
+        app_log(LL_WARN, "Play in %s failed (HTTP %d), playing the track alone", context.c_str(), r.code);
+        body.clear();
+        json = "";
+    }
+    body["uris"][0] = trackUri;
+    serializeJson(body, json);
+    return apiCall("PUT", "/me/player/play", json);
 }
 
 void fetchLookup(const String &id) {
@@ -767,6 +868,12 @@ void runCommand(const CmdMsg &msg) {
     case CMD_LIST_PLAYLISTS:
         fetchList(LIST_PLAYLISTS, strtoul(msg.arg, nullptr, 10));
         return;
+    case CMD_LIST_RECENT:
+        fetchRecent();
+        return;
+    case CMD_PLAY_TRACK:
+        r = playTrack(msg.arg);
+        break;
     case CMD_LIST_WEB_PLAYLISTS:
         fetchList(LIST_WEB_PLAYLISTS, strtoul(msg.arg, nullptr, 10));
         return;
@@ -909,6 +1016,8 @@ bool spotify_exchange_code(const String &code, const String &verifier, String &e
         authLost = false;
         likeNeedsLogin = false;
         likedForId = "";
+        recentNeedsLogin = false;
+        queueForId = "";
         backoffStep = 0;
         backoffUntil = millis();
         lastArtUrl = "";
@@ -959,6 +1068,11 @@ void spotify_request_list(ListKind kind, uint32_t offset, const String &query) {
     case LIST_WEB_SEARCH:
         msg.cmd = CMD_SEARCH_PLAYLISTS;
         break;
+    case LIST_RECENT:
+        msg.cmd = CMD_LIST_RECENT;
+        break;
+    default:
+        return;
     }
     strlcpy(msg.arg, arg.c_str(), sizeof(msg.arg));
     xQueueSend(cmdQueue, &msg, 0);
@@ -968,6 +1082,15 @@ void spotify_select(ListKind kind, const String &id) {
     CmdMsg msg = {};
     msg.cmd = kind == LIST_DEVICES ? CMD_TRANSFER : CMD_PLAY_CONTEXT;
     strlcpy(msg.arg, id.c_str(), sizeof(msg.arg));
+    xQueueSend(cmdQueue, &msg, 0);
+}
+
+void spotify_play_track(const String &trackId, const String &contextUri) {
+    CmdMsg msg = {};
+    msg.cmd = CMD_PLAY_TRACK;
+    String arg = trackId + "|" + contextUri;
+    if (arg.length() >= sizeof(msg.arg)) arg = trackId;  // too long to carry the context
+    strlcpy(msg.arg, arg.c_str(), sizeof(msg.arg));
     xQueueSend(cmdQueue, &msg, 0);
 }
 

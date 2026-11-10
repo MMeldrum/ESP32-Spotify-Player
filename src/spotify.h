@@ -4,7 +4,7 @@
 
 #define SPOTIFY_REDIRECT_URI "http://127.0.0.1:8080/callback"
 #define SPOTIFY_ART_PATH "/art.jpg"
-#define SPOTIFY_SCOPES "user-read-playback-state user-modify-playback-state playlist-read-private user-library-read user-library-modify"
+#define SPOTIFY_SCOPES "user-read-playback-state user-modify-playback-state playlist-read-private user-library-read user-library-modify user-read-recently-played"
 
 enum SpotifyCmd : uint8_t {
     CMD_PLAY_PAUSE = 1,
@@ -23,11 +23,13 @@ enum SpotifyCmd : uint8_t {
     CMD_SHUFFLE,
     CMD_REPEAT,
     CMD_LIKE,
+    CMD_LIST_RECENT,
+    CMD_PLAY_TRACK,
 };
 
 enum RepeatMode : uint8_t { REPEAT_OFF, REPEAT_CONTEXT, REPEAT_TRACK };
 
-enum ListKind : uint8_t { LIST_DEVICES, LIST_PLAYLISTS, LIST_WEB_PLAYLISTS, LIST_WEB_LOOKUP, LIST_WEB_SEARCH };
+enum ListKind : uint8_t { LIST_DEVICES, LIST_PLAYLISTS, LIST_WEB_PLAYLISTS, LIST_WEB_LOOKUP, LIST_WEB_SEARCH, LIST_RECENT, LIST_KIND_COUNT };
 enum ListStatus : uint8_t { LIST_IDLE, LIST_LOADING, LIST_READY, LIST_ERROR };
 
 struct ListItem {
@@ -36,6 +38,7 @@ struct ListItem {
     bool active = false;
     bool pinned = false;
     String owner;
+    String context;  // LIST_RECENT: the playlist/album it was played from (spotify: URI), may be empty
 };
 
 struct ListData {
@@ -82,6 +85,8 @@ struct PlayerState {
     bool likeNeedsLogin = false;
     // First track in the play queue ("Title - Artist"), empty when unknown or the queue is empty.
     String upNext;
+    // Last track played before this one ("Title - Artist"), empty when unknown.
+    String previous;
     uint32_t stamp = 0;
 };
 
@@ -95,6 +100,8 @@ void spotify_send(SpotifyCmd cmd);
 void spotify_seek(uint32_t positionMs);
 void spotify_request_list(ListKind kind, uint32_t offset = 0, const String &query = "");
 void spotify_select(ListKind kind, const String &id);
+// Plays a track; within contextUri (album or playlist) when given, so playback continues from there.
+void spotify_play_track(const String &trackId, const String &contextUri);
 void spotify_get_list(ListKind kind, ListData &out);
 void spotify_get_state(PlayerState &out);
 // The next tracks in the play queue (up to 10), as "Title - Artist".
