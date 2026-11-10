@@ -862,6 +862,25 @@ void updateSettingsClock() {
 }
 
 // Sliders change the backlight while dragging (as a preview) and save when the finger lifts.
+// Settings changes apply at once but are saved to flash only when the Settings screen is left. On the
+// 4848S040 a flash write stalls the PSRAM the RGB panel scans from and the picture jumps, so saving on
+// every change made the screen glitch; the single save on exit runs with the backlight briefly off.
+bool settingsDirty = false;
+
+void saveSettings() {
+    if (!settingsDirty) return;
+    settingsDirty = false;
+#if BOARD_TEMP_IN_PSRAM
+    bool wasOn = display_screen_on();
+    display_set_screen_on(false);
+    config_save();
+    delay(80);  // a few frames for the panel to settle before the light comes back
+    if (wasOn) display_set_screen_on(true);
+#else
+    config_save();
+#endif
+}
+
 void onBrightness(lv_event_t *e) {
     lv_obj_t *slider = lv_event_get_target(e);
     bool isNight = slider == sliderNight;
@@ -872,7 +891,7 @@ void onBrightness(lv_event_t *e) {
     int &stored = isNight ? g_config.nightBrightness : g_config.screenBrightness;
     if (value != stored) {
         stored = value;
-        config_save();
+        settingsDirty = true;
     }
     updateNightMode(true);
 }
@@ -897,7 +916,7 @@ void onNightSetting(lv_event_t *e) {
         time_set_zone(g_config.timeZone);
         updateSettingsClock();
     }
-    config_save();
+    settingsDirty = true;
     updateNightMode(true);
 }
 
@@ -990,6 +1009,7 @@ lv_obj_t *makeDropdown(lv_obj_t *parent, int x, int y, int w, const char *option
 // The Settings screen is built when opened and deleted once another screen replaces it: it is rarely shown,
 // and its ~40 objects and dropdown lists would otherwise sit in the LVGL heap (only 30 KB on the CYD).
 void onSettingsUnloaded(lv_event_t *) {
+    saveSettings();
     lv_obj_del_async(screenSettings);
     screenSettings = nullptr;
     sliderBrightness = lblBrightness = switchNight = ddNightFrom = ddNightTo = nullptr;

@@ -21,7 +21,7 @@ The ESP32 does not play audio itself. It controls an existing Spotify Connect de
 - **Swipe** left for the next track, right for the previous one.
 - **Controls fade out** after 5 seconds of playback without touches; the track text drops to the bottom of the screen. The first tap brings them back without pressing anything.
 - **Settings screen** on the device (gear button):
-  - **Brightness** (35-100%; the minimum keeps the screen readable).
+  - **Brightness** (40-100%; the minimum keeps the screen readable). Changes on the Settings screen apply at once and are saved when you leave it.
   - **Night mode**: a dimmer brightness between two hours of your choice, using internet time and a **time zone** list with automatic daylight saving.
   - **When idle**: after 1 minute to 1 hour without touches (default 10), either switch the screen off or show a **clock** (large time, date and the current track over the darkened album art). A touch, or a new track when the screen is off, brings the player back.
   - **Show previous & next** (ESP32-4848S040): show or hide the previous and next track lines.
