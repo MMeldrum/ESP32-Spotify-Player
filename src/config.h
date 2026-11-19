@@ -32,6 +32,7 @@ struct AppConfig {
     bool idleClock = false;
     int idleMinutes = 10;
     bool showNeighbours = true;  // previous and next track lines on the player
+    int rotation = 0;            // quarter turns clockwise, see display_set_rotation()
     String webPassHash;
     String webPassSalt;
     String refreshToken;

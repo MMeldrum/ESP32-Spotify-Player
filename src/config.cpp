@@ -59,6 +59,8 @@ void config_load() {
     g_config.idleClock = doc["idle_clock"] | false;
     g_config.idleMinutes = constrain((int)(doc["idle_minutes"] | 10), 1, 60);
     g_config.showNeighbours = doc["show_neighbours"] | true;
+    g_config.rotation = constrain((int)(doc["rotation"] | 0), 0, 3);
+    if (!DISPLAY_CAN_ROTATE_90) g_config.rotation &= 2;
     g_config.refreshToken = doc["refresh_token"] | "";
     g_config.webPassHash = doc["web_pass_hash"] | "";
     g_config.webPassSalt = doc["web_pass_salt"] | "";
@@ -94,6 +96,7 @@ bool config_save() {
     doc["idle_clock"] = g_config.idleClock;
     doc["idle_minutes"] = g_config.idleMinutes;
     doc["show_neighbours"] = g_config.showNeighbours;
+    doc["rotation"] = g_config.rotation;
     doc["refresh_token"] = g_config.refreshToken;
     doc["web_pass_hash"] = g_config.webPassHash;
     doc["web_pass_salt"] = g_config.webPassSalt;

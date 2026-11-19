@@ -23,6 +23,7 @@ int main(int, char **) {
     g_config.pins = {{"p0", "Morning Focus"}, {"p1", "Late Night Drive"}};
     if (getenv("SIM_IDLE_MINUTES")) g_config.idleMinutes = atoi(getenv("SIM_IDLE_MINUTES"));
     if (getenv("SIM_IDLE_CLOCK")) g_config.idleClock = true;
+    if (getenv("SIM_ROTATION")) g_config.rotation = atoi(getenv("SIM_ROTATION")) & 3;
 
     // SIM_DEMO=1 records the scripted demo (see demo.cpp); it runs on a virtual clock from the start.
     bool demo = getenv("SIM_DEMO") != nullptr;
@@ -30,6 +31,7 @@ int main(int, char **) {
 
     display_init();
     display_set_brightness(g_config.screenBrightness);
+    display_set_rotation(g_config.rotation);
     ui_init();
     ui_set_info_provider(simInfo);
     show_player_screen();

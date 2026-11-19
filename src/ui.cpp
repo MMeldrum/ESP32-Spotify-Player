@@ -72,6 +72,7 @@ lv_obj_t *lblNightBrightness;
 lv_obj_t *ddTimeZone;
 lv_obj_t *ddIdle;
 lv_obj_t *ddIdleTime;
+lv_obj_t *ddRotation;
 lv_obj_t *switchNeighbours = nullptr;
 lv_obj_t *lblClockNow;
 bool nightActive = false;
@@ -218,6 +219,18 @@ const String &cachedClean(CleanCache &c, const String &raw, const char *fallback
 }
 
 CleanCache cacheTitle, cacheArtist, cacheUpNext, cachePrevious, cacheMessage;
+#if defined(BOARD_ESP32_4848S040)
+extern "C" {
+LV_IMG_DECLARE(icon_devices_22);
+}
+#define ICON_DEVICES icon_devices_22
+#else
+extern "C" {
+LV_IMG_DECLARE(icon_devices_14);
+}
+#define ICON_DEVICES icon_devices_14
+#endif
+
 const String EMPTY_TEXT;
 const String NOTHING_PLAYING = "Nothing playing";
 
@@ -914,6 +927,10 @@ void onNightSetting(lv_event_t *e) {
         g_config.idleClock = lv_dropdown_get_selected(ddIdle) == 1;
     } else if (target == ddIdleTime) {
         g_config.idleMinutes = IDLE_CHOICES[lv_dropdown_get_selected(ddIdleTime)];
+    } else if (target == ddRotation) {
+        int index = lv_dropdown_get_selected(ddRotation);
+        g_config.rotation = DISPLAY_CAN_ROTATE_90 ? index : index * 2;
+        display_set_rotation(g_config.rotation);
     } else if (target == ddTimeZone) {
         g_config.timeZone = lv_dropdown_get_selected(ddTimeZone);
         time_set_zone(g_config.timeZone);
@@ -952,6 +969,7 @@ void onOpenSettings(lv_event_t *) {
         if (IDLE_CHOICES[i] <= g_config.idleMinutes) idleIndex = i;
     }
     lv_dropdown_set_selected(ddIdleTime, idleIndex);
+    lv_dropdown_set_selected(ddRotation, DISPLAY_CAN_ROTATE_90 ? g_config.rotation : g_config.rotation / 2);
     updateSettingsClock();
     lv_obj_scroll_to_y(screenSettings, 0, LV_ANIM_OFF);
     lv_scr_load(screenSettings);
@@ -1017,6 +1035,7 @@ void onSettingsUnloaded(lv_event_t *) {
     screenSettings = nullptr;
     sliderBrightness = lblBrightness = switchNight = ddNightFrom = ddNightTo = nullptr;
     sliderNight = lblNightBrightness = ddTimeZone = lblClockNow = ddIdle = ddIdleTime = switchNeighbours = nullptr;
+    ddRotation = nullptr;
 }
 
 void buildSettingsUi() {
@@ -1103,6 +1122,16 @@ void buildSettingsUi() {
         lv_label_set_text(lbl, "Show previous & next");
         switchNeighbours = makeSwitch(card, cardW - S(60), S(8));
     }
+
+    // Screen rotation, for mounting the display another way up
+    card = makeGlass(screenSettings, S(12), EXTRA_ROW ? S(458) : S(410), cardW, S(40), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    ddRotation = makeDropdown(card, cardW - S(124), S(6), S(110),
+                              DISPLAY_CAN_ROTATE_90 ? "0\xC2\xB0\n90\xC2\xB0\n180\xC2\xB0\n270\xC2\xB0" : "0\xC2\xB0\n180\xC2\xB0");
+    lbl = makeLabel(card, S(14), 0, cardW - S(124) - S(22), TEXT_MAIN, &FONT_UI_SMALL);
+    makeSingleLine(lbl, &FONT_UI_SMALL);
+    lv_label_set_text(lbl, LV_SYMBOL_REFRESH "  Rotation");
+    lv_obj_set_y(lbl, S(6) + (S(28) - lv_font_get_line_height(&FONT_UI_SMALL)) / 2);
 }
 
 // --- Idle clock ---
@@ -1287,7 +1316,12 @@ void buildPlayerUi() {
     makeSingleLine(lblVolume, &FONT_UI_SMALL);
 
     lv_obj_t *btnDevice = makeGlassButton(screenPlayer, SCREEN_W - S(122), S(5), S(54), S(28), onOpenDevices, nullptr);
-    makeButtonLabel(btnDevice, LV_SYMBOL_AUDIO);
+    // A speaker next to a phone (src/icons): no symbol font has a "devices" glyph.
+    lv_obj_t *deviceIcon = lv_img_create(btnDevice);
+    lv_img_set_src(deviceIcon, &ICON_DEVICES);
+    lv_obj_set_style_img_recolor(deviceIcon, TEXT_MAIN, 0);
+    lv_obj_set_style_img_recolor_opa(deviceIcon, LV_OPA_COVER, 0);
+    lv_obj_center(deviceIcon);
 
     lv_obj_t *btnLists = makeGlassButton(screenPlayer, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
     makeButtonLabel(btnLists, LV_SYMBOL_LIST);

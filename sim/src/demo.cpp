@@ -195,12 +195,12 @@ void buildScript() {
     caption("When idle: switch the screen off, or show a clock");
     drag(240, 430, 240, 110, 800);
     wait(1200);
-    tap(240, 360, 1400);  // the list opens upwards: "Show the clock" is its second row
-    tap(240, 308, 1800);
+    tap(240, 288, 1400);  // the list opens downwards: "Show the clock" is its second row
+    tap(240, 385, 1800);
 
     caption("The previous and next lines can be hidden");
-    tap(406, 435, 1800);
-    drag(240, 191, 240, 470, 800);  // starts on the "Time zone" label, not on a slider
+    tap(406, 361, 1800);
+    drag(240, 120, 240, 470, 800);  // starts on the "Time zone" card, not on a slider
     wait(800);
     tap(BACK_X, BACK_Y, 3000);
 

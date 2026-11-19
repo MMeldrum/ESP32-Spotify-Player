@@ -21,6 +21,7 @@ bool screenOn = true;
 bool (*scriptedTouch)(int *x, int *y) = nullptr;
 bool swallowTouch = false;
 void (*touchWakeCb)() = nullptr;
+int rotation = 0;  // quarter turns clockwise, as on the board (square screen)
 
 void applyBacklight() {
     // Same curve as the PWM on the board: perceived brightness ~ duty squared.
@@ -30,8 +31,18 @@ void applyBacklight() {
 
 void flushCb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *pixels) {
     int w = area->x2 - area->x1 + 1;
+    constexpr int N = SCREEN_W;
     for (int y = area->y1; y <= area->y2; y++) {
-        memcpy(&frame[y * SCREEN_W + area->x1], &pixels[(y - area->y1) * w], w * sizeof(uint16_t));
+        const uint16_t *in = (const uint16_t *)&pixels[(y - area->y1) * w];
+        if (rotation == 0) {
+            memcpy(&frame[y * N + area->x1], in, w * sizeof(uint16_t));
+            continue;
+        }
+        for (int x = area->x1; x <= area->x2; x++) {
+            int px = rotation == 1 ? N - 1 - y : rotation == 2 ? N - 1 - x : y;
+            int py = rotation == 1 ? x : rotation == 2 ? N - 1 - y : N - 1 - x;
+            frame[py * N + px] = *in++;
+        }
     }
     lv_disp_flush_ready(drv);
 }
@@ -51,6 +62,15 @@ void touchReadCb(lv_indev_drv_t *, lv_indev_data_t *data) {
         data->point.x = constrain(x * SCREEN_W / ww, 0, SCREEN_W - 1);
         data->point.y = constrain(y * SCREEN_H / wh, 0, SCREEN_H - 1);
         pressed = (buttons & SDL_BUTTON_LMASK) && (SDL_GetMouseFocus() == window);
+    }
+    if (!scriptedTouch) {
+        // The mouse is on the turned window; LVGL wants the logical point (scripts already use those).
+        int px = data->point.x, py = data->point.y;
+        switch (rotation) {
+            case 1: data->point.x = py, data->point.y = SCREEN_W - 1 - px; break;
+            case 2: data->point.x = SCREEN_W - 1 - px, data->point.y = SCREEN_H - 1 - py; break;
+            case 3: data->point.x = SCREEN_H - 1 - py, data->point.y = px; break;
+        }
     }
     data->state = pressed ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
     // As on the board: while the screen is off, the first touch only wakes it.
@@ -161,3 +181,13 @@ void display_set_screen_on(bool on) {
 bool display_screen_on() { return screenOn; }
 
 void display_on_touch_wake(void (*callback)()) { touchWakeCb = callback; }
+
+void display_set_rotation(int quarterTurns) {
+    quarterTurns &= 3;
+    if (quarterTurns == rotation) return;
+    rotation = quarterTurns;
+    lv_area_t all = {0, 0, SCREEN_W - 1, SCREEN_H - 1};
+    _lv_inv_area(lv_disp_get_default(), &all);
+}
+
+int display_rotation() { return rotation; }

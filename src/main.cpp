@@ -335,6 +335,7 @@ void setup() {
 
     display_init();
     display_set_brightness(g_config.screenBrightness);
+    display_set_rotation(g_config.rotation);
     ui_init();
     ui_set_info_provider(deviceInfo);
     ui_set_reset_handler(requestWifiReset);

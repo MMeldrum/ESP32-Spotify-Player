@@ -610,7 +610,7 @@ void pollPlayer() {
     } else if (r.code == 204 || r.code == 200) {
         xSemaphoreTake(stateLock, portMAX_DELAY);
         shared = PlayerState();
-        shared.message = "No active device. Start playback in Spotify.";
+        shared.message = "No active device";
         xSemaphoreGive(stateLock);
     } else if (r.code != 429 && !authLost) {
         setMessage(describeError(r.body, r.code));

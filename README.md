@@ -25,6 +25,7 @@ The ESP32 does not play audio itself. It controls an existing Spotify Connect de
   - **Night mode**: a dimmer brightness between two hours of your choice, using internet time and a **time zone** list with automatic daylight saving.
   - **When idle**: after 1 minute to 1 hour without touches (default 10), either switch the screen off or show a **clock** (large time, date and the current track over the darkened album art). A touch, or a new track when the screen is off, brings the player back.
   - **Show previous & next** (ESP32-4848S040): show or hide the previous and next track lines.
+  - **Rotation**: turn the picture and touch to suit how the screen is mounted: 0/90/180/270° on the square ESP32-4848S040, 0/180° (upside down) on the CYD.
 - **Shuffle, repeat and like** buttons (ESP32-4848S040): a second row of controls that light up in the album colour. Like adds or removes the track from your Liked Songs.
 - **Previous and next track** (ESP32-4848S040): the track played before this one is shown above the title, the next one in the queue below the artist. Tap "Next" for the next ten queued tracks; tap "Previous" for your **recently played** tracks, and tap one of those to play it again (in its playlist or album when Spotify allows).
 - When the playback device does not allow remote volume control (most phones), the volume buttons are greyed out and inactive.
@@ -227,7 +228,7 @@ The PKCE challenge is generated on the ESP32 and only the refresh token is store
 
 - **Album art resolution** (Spotify tab): 64, 300 or 640 px (default 300 on the CYD, 640 on the ESP32-4848S040). On the CYD images are downloaded to a temporary flash file, decoded, and deleted again; the ESP32-4848S040 keeps them in PSRAM.
 - **Pinned playlists** (Playlists tab): search "My playlists", search Spotify, or paste a playlist URL or ID. Pinned playlists appear first on the display and play without any lookup.
-- **Brightness, night mode, time zone, idle behaviour** and **previous/next lines**: on the device's **Settings** screen (gear button). Set the time zone first; night mode and the clock use it.
+- **Brightness, night mode, time zone, idle behaviour**, **previous/next lines** and **rotation**: on the device's **Settings** screen (gear button). Set the time zone first; night mode and the clock use it.
 
 ## Using the device
 

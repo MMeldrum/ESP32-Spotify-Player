@@ -13,6 +13,10 @@
 #define LV_MEM_SIZE (256U * 1024U)
 #define LV_MEM_POOL_INCLUDE <esp32-hal-psram.h>
 #define LV_MEM_POOL_ALLOC ps_malloc
+// Frames are drawn and copied to the panel in parallel (see display.cpp), so ~30 fps is possible: redraw
+// and read the touch more often than the default 30 ms, so scrolling follows the finger smoothly.
+#define LV_DISP_DEF_REFR_PERIOD 15
+#define LV_INDEV_DEF_READ_PERIOD 15
 #else
 // Measured on the 4848S040 (same objects plus a few): ~22 KB at rest, ~33 KB with the Settings screen open.
 #define LV_MEM_SIZE (40U * 1024U)
