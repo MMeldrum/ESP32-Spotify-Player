@@ -51,6 +51,7 @@ String shownUpNext;
 String shownPrevious;
 void onOpenRecent(lv_event_t *);
 lv_obj_t *lblVolume;
+lv_obj_t *topBar;  // volume and the top buttons: fades out with the controls
 lv_obj_t *barProgress;
 lv_obj_t *lblElapsed;
 lv_obj_t *lblTotal;
@@ -361,6 +362,7 @@ void updateDim(uint32_t time) {
 void setControlsShown(bool shown, uint32_t time) {
     controlsShown = shown;
     animateTo(controlsPanel, execOpa, lv_obj_get_style_opa(controlsPanel, 0), shown ? LV_OPA_COVER : LV_OPA_TRANSP, time);
+    animateTo(topBar, execOpa, lv_obj_get_style_opa(topBar, 0), shown ? LV_OPA_COVER : LV_OPA_TRANSP, time);
     // The text jumps instead of sliding: up at once when the controls return, down once they have faded out.
     lv_anim_del(textBox, execTranslateY);
     if (shown || !time) {
@@ -1312,10 +1314,16 @@ void buildPlayerUi() {
     lv_obj_set_style_radius(dimLayer, 0, 0);
     lv_obj_clear_flag(dimLayer, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
 
-    lblVolume = makeLabel(screenPlayer, S(14), S(10), S(62), DEFAULT_ACCENT, &FONT_UI_SMALL);
+    topBar = lv_obj_create(screenPlayer);
+    lv_obj_remove_style_all(topBar);
+    lv_obj_set_pos(topBar, 0, 0);
+    lv_obj_set_size(topBar, SCREEN_W, S(38));
+    lv_obj_clear_flag(topBar, (lv_obj_flag_t)(LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE));
+
+    lblVolume = makeLabel(topBar, S(14), S(10), S(62), DEFAULT_ACCENT, &FONT_UI_SMALL);
     makeSingleLine(lblVolume, &FONT_UI_SMALL);
 
-    lv_obj_t *btnDevice = makeGlassButton(screenPlayer, SCREEN_W - S(122), S(5), S(54), S(28), onOpenDevices, nullptr);
+    lv_obj_t *btnDevice = makeGlassButton(topBar, SCREEN_W - S(122), S(5), S(54), S(28), onOpenDevices, nullptr);
     // A speaker next to a phone (src/icons): no symbol font has a "devices" glyph.
     lv_obj_t *deviceIcon = lv_img_create(btnDevice);
     lv_img_set_src(deviceIcon, &ICON_DEVICES);
@@ -1323,10 +1331,10 @@ void buildPlayerUi() {
     lv_obj_set_style_img_recolor_opa(deviceIcon, LV_OPA_COVER, 0);
     lv_obj_center(deviceIcon);
 
-    lv_obj_t *btnLists = makeGlassButton(screenPlayer, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
+    lv_obj_t *btnLists = makeGlassButton(topBar, SCREEN_W - S(64), S(5), S(54), S(28), onOpenPlaylists, nullptr);
     makeButtonLabel(btnLists, LV_SYMBOL_LIST);
 
-    lv_obj_t *btnSettings = makeGlassButton(screenPlayer, SCREEN_W - S(180), S(5), S(54), S(28), onOpenSettings, nullptr);
+    lv_obj_t *btnSettings = makeGlassButton(topBar, SCREEN_W - S(180), S(5), S(54), S(28), onOpenSettings, nullptr);
     makeButtonLabel(btnSettings, LV_SYMBOL_SETTINGS);
 
     // The text sits in a column anchored just above the controls: any message, the title (up to two lines),
