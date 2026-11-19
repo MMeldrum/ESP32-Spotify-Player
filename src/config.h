@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <vector>
+#include "board.h"
 
 constexpr size_t MAX_PINS = 20;
 constexpr size_t MAX_NETWORKS = 8;
@@ -18,8 +19,20 @@ struct WifiNet {
 struct AppConfig {
     std::vector<WifiNet> networks;
     String clientId;
-    int artSize = 300;
+    int artSize = DEFAULT_ART_SIZE;
     int ledBrightness = 40;
+    int screenBrightness = 100;
+    // Night mode: dimmer screen between nightFrom and nightTo (hours, local time).
+    bool nightMode = false;
+    int nightFrom = 22;
+    int nightTo = 7;
+    int nightBrightness = 35;
+    int timeZone = 0;  // index into TIME_ZONES
+    // When idle, show a clock instead of switching the screen off.
+    bool idleClock = false;
+    int idleMinutes = 10;
+    bool showNeighbours = true;  // previous and next track lines on the player
+    int rotation = 0;            // quarter turns clockwise, see display_set_rotation()
     String webPassHash;
     String webPassSalt;
     String refreshToken;

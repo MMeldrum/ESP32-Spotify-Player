@@ -1,5 +1,7 @@
 #include "config.h"
 #include "app_log.h"
+#include "board.h"
+#include "clock_time.h"
 #include "display.h"
 #include "led.h"
 #include "spotify.h"
@@ -69,7 +71,10 @@ static void checkHeap() {
     app_log(LL_DEBUG, "Heap free=%u max=%u min=%u 8bit=%u", (unsigned)freeHeap, (unsigned)maxBlock, (unsigned)ESP.getMinFreeHeap(), (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT));
     lv_mem_monitor_t mon;
     lv_mem_monitor(&mon);
-    app_log(LL_DEBUG, "LVGL used=%u%% free=%u biggest=%u", (unsigned)mon.used_pct, (unsigned)mon.free_size, (unsigned)mon.free_biggest_size);
+    app_log(LL_DEBUG, "LVGL used=%u%% (%u of %u B) biggest free=%u", (unsigned)mon.used_pct, (unsigned)(mon.total_size - mon.free_size),
+            (unsigned)mon.total_size, (unsigned)mon.free_biggest_size);
+    // Stack high-water marks (bytes never used): a task close to 0 is the likely cause of a crash or reset.
+    app_log(LL_DEBUG, "Stack free: loop=%u spotify=%u", (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)spotify_stack_free());
     if (freeHeap < LOW_HEAP_BYTES) app_log(LL_WARN, "Low heap: free=%u max=%u", (unsigned)freeHeap, (unsigned)maxBlock);
 }
 
@@ -130,11 +135,14 @@ static bool checkInternet() {
     return code == 204;
 }
 
+static volatile uint8_t lastDisconnectReason = 0;
+
 static bool tryNetwork(const WifiNet &net) {
     String status = "Connecting to\n" + net.ssid + "...";
     ui_set_setup_status(status.c_str());
     WiFi.disconnect();
     delay(100);
+    lastDisconnectReason = 0;
     WiFi.begin(net.ssid.c_str(), net.pass.c_str());
 
     uint32_t start = millis();
@@ -142,10 +150,15 @@ static bool tryNetwork(const WifiNet &net) {
         lv_timer_handler();
         delay(50);
     }
-    return WiFi.status() == WL_CONNECTED;
+    if (WiFi.status() == WL_CONNECTED) return true;
+    // Reasons: 2/15/202/204 = authentication (usually the password), 201 = network not found.
+    app_log(LL_WARN, "Wi-Fi '%s' failed, status %d, reason %u", net.ssid.c_str(), (int)WiFi.status(), (unsigned)lastDisconnectReason);
+    return false;
 }
 
 static bool connectStation() {
+    WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) { lastDisconnectReason = info.wifi_sta_disconnected.reason; },
+                 ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
@@ -160,6 +173,7 @@ static bool connectStation() {
     for (const WifiNet &net : known) {
         for (int i = 0; i < found; i++) {
             if (WiFi.SSID(i) == net.ssid) {
+                Serial.printf("Found '%s' on channel %d, %d dBm, auth %d\n", net.ssid.c_str(), (int)WiFi.channel(i), (int)WiFi.RSSI(i), (int)WiFi.encryptionType(i));
                 candidates.push_back(net);
                 break;
             }
@@ -203,6 +217,7 @@ static void startAccessPoint() {
 }
 
 static void enterNoSpotify() {
+    time_begin();
     String ip = WiFi.localIP().toString();
     update_setup_screen(ip.c_str(), false);
     show_setup_screen();
@@ -210,6 +225,7 @@ static void enterNoSpotify() {
 }
 
 static void enterReady() {
+    time_begin();
     show_player_screen();
     spotify_start();
     appState = READY;
@@ -236,7 +252,11 @@ static void updatePlayerUi() {
     }
 }
 
-static void requestWifiReset() { resetRequested = true; }
+// Without a BOOT button the on-screen reset is the only physical way back in, so it also removes the web password.
+static void requestWifiReset() {
+    if (!BOARD_HAS_BOOT_BUTTON) passwordResetRequested = true;
+    resetRequested = true;
+}
 
 static void handleWifiReset() {
     if (!resetRequested) return;
@@ -259,6 +279,7 @@ static void handleWifiReset() {
 }
 
 static void handleBootButton() {
+    if (!BOARD_HAS_BOOT_BUTTON) return;
     if (digitalRead(0) != LOW) {
         bootHeldSince = 0;
         return;
@@ -313,10 +334,12 @@ void setup() {
     led_init();
 
     display_init();
+    display_set_brightness(g_config.screenBrightness);
+    display_set_rotation(g_config.rotation);
     ui_init();
     ui_set_info_provider(deviceInfo);
     ui_set_reset_handler(requestWifiReset);
-    pinMode(0, INPUT_PULLUP);
+    if (BOARD_HAS_BOOT_BUTTON) pinMode(0, INPUT_PULLUP);
     show_setup_screen();
     spotify_init();
 
@@ -330,7 +353,7 @@ void setup() {
         startAccessPoint();
     }
     web_portal_begin();
-    Serial.printf("Boot done: heap free=%u max=%u\n", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    Serial.printf("Boot done: heap free=%u max=%u psram=%u\n", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(), (unsigned)ESP.getFreePsram());
 }
 
 void loop() {

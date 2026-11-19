@@ -1,10 +1,13 @@
 #include "config.h"
+#include "board.h"
+#include "display.h"
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <algorithm>
 #include <mbedtls/sha256.h>
 
 static const char *CONFIG_PATH = "/config.json";
+static const char *CONFIG_TMP_PATH = "/config.tmp";
 
 AppConfig g_config;
 
@@ -45,8 +48,19 @@ void config_load() {
         g_config.networks.push_back({legacySsid, (const char *)(doc["pass"] | "")});
     }
     g_config.clientId = doc["client_id"] | "";
-    g_config.artSize = doc["art_size"] | 300;
+    g_config.artSize = doc["art_size"] | DEFAULT_ART_SIZE;
     g_config.ledBrightness = constrain((int)(doc["led_brightness"] | 40), 0, 100);
+    g_config.screenBrightness = constrain((int)(doc["screen_brightness"] | 100), DISPLAY_MIN_BRIGHTNESS, 100);
+    g_config.nightMode = doc["night_mode"] | false;
+    g_config.nightFrom = constrain((int)(doc["night_from"] | 22), 0, 23);
+    g_config.nightTo = constrain((int)(doc["night_to"] | 7), 0, 23);
+    g_config.nightBrightness = constrain((int)(doc["night_brightness"] | DISPLAY_MIN_BRIGHTNESS), DISPLAY_MIN_BRIGHTNESS, 100);
+    g_config.timeZone = max(0, (int)(doc["time_zone"] | 0));
+    g_config.idleClock = doc["idle_clock"] | false;
+    g_config.idleMinutes = constrain((int)(doc["idle_minutes"] | 10), 1, 60);
+    g_config.showNeighbours = doc["show_neighbours"] | true;
+    g_config.rotation = constrain((int)(doc["rotation"] | 0), 0, 3);
+    if (!DISPLAY_CAN_ROTATE_90) g_config.rotation &= 2;
     g_config.refreshToken = doc["refresh_token"] | "";
     g_config.webPassHash = doc["web_pass_hash"] | "";
     g_config.webPassSalt = doc["web_pass_salt"] | "";
@@ -73,6 +87,16 @@ bool config_save() {
     doc["client_id"] = g_config.clientId;
     doc["art_size"] = g_config.artSize;
     doc["led_brightness"] = g_config.ledBrightness;
+    doc["screen_brightness"] = g_config.screenBrightness;
+    doc["night_mode"] = g_config.nightMode;
+    doc["night_from"] = g_config.nightFrom;
+    doc["night_to"] = g_config.nightTo;
+    doc["night_brightness"] = g_config.nightBrightness;
+    doc["time_zone"] = g_config.timeZone;
+    doc["idle_clock"] = g_config.idleClock;
+    doc["idle_minutes"] = g_config.idleMinutes;
+    doc["show_neighbours"] = g_config.showNeighbours;
+    doc["rotation"] = g_config.rotation;
     doc["refresh_token"] = g_config.refreshToken;
     doc["web_pass_hash"] = g_config.webPassHash;
     doc["web_pass_salt"] = g_config.webPassSalt;
@@ -83,10 +107,17 @@ bool config_save() {
         o["name"] = pin.name;
     }
 
-    File file = LittleFS.open(CONFIG_PATH, "w");
+    // Write a temp file and rename it over the old one (atomic on LittleFS), so a reset or power cut during
+    // the write cannot leave an empty config and lose the Wi-Fi networks, Spotify login and pins.
+    File file = LittleFS.open(CONFIG_TMP_PATH, "w");
     if (!file) return false;
-    serializeJson(doc, file);
+    size_t expected = measureJson(doc);
+    size_t written = serializeJson(doc, file);
     file.close();
+    if (written != expected || !LittleFS.rename(CONFIG_TMP_PATH, CONFIG_PATH)) {
+        LittleFS.remove(CONFIG_TMP_PATH);
+        return false;
+    }
     return true;
 }
 

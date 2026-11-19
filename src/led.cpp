@@ -1,7 +1,10 @@
 #include "led.h"
+#include "board.h"
 #include "config.h"
 #include <Arduino.h>
 #include <math.h>
+
+#if BOARD_HAS_RGB_LED
 
 namespace {
 
@@ -66,3 +69,12 @@ void led_tick() {
         }
     }
 }
+
+#else
+
+void led_init() {}
+void led_set_color(uint32_t) {}
+void led_set_brightness(int) {}
+void led_tick() {}
+
+#endif
