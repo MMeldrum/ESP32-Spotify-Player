@@ -42,6 +42,7 @@ static uint32_t lastTick = 0;
 static uint32_t lastHeapCheck = 0;
 static volatile bool resetRequested = false;
 static volatile bool passwordResetRequested = false;
+static volatile bool ownerResetRequested = false;
 static bool rescueAp = false;
 static uint32_t offlineSince = 0;
 static uint32_t bootHeldSince = 0;
@@ -258,6 +259,21 @@ static void requestWifiReset() {
     resetRequested = true;
 }
 
+static void requestOwnerReset() { ownerResetRequested = true; }
+
+// Settings > Reset for a new owner: clears everything personal and restarts in setup mode.
+static void handleOwnerReset() {
+    if (!ownerResetRequested) return;
+    config_reset_for_new_owner();
+    show_setup_screen();
+    ui_set_setup_status("Device reset.\nRestarting in setup mode...");
+    for (int i = 0; i < 30; i++) {
+        lv_timer_handler();
+        delay(30);
+    }
+    ESP.restart();
+}
+
 static void handleWifiReset() {
     if (!resetRequested) return;
     bool clearPassword = passwordResetRequested;
@@ -339,6 +355,7 @@ void setup() {
     ui_init();
     ui_set_info_provider(deviceInfo);
     ui_set_reset_handler(requestWifiReset);
+    ui_set_owner_reset_handler(requestOwnerReset);
     if (BOARD_HAS_BOOT_BUTTON) pinMode(0, INPUT_PULLUP);
     show_setup_screen();
     spotify_init();
@@ -363,6 +380,7 @@ void loop() {
     handleSpotifyCode();
     handleBootButton();
     handleWifiReset();
+    handleOwnerReset();
     handleRescueAp();
 
     if (appState == READY && spotify_auth_lost()) enterNoSpotify();

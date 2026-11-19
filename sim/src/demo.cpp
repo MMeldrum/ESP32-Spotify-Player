@@ -193,14 +193,14 @@ void buildScript() {
     tap(240, 450, 1200);
 
     caption("When idle: switch the screen off, or show a clock");
-    drag(240, 430, 240, 110, 800);
+    drag(240, 430, 240, 30, 900);  // to the bottom of the page
     wait(1200);
-    tap(240, 288, 1400);  // the list opens downwards: "Show the clock" is its second row
-    tap(240, 385, 1800);
+    tap(240, 216, 1400);  // the list opens downwards: "Show the clock" is its second row
+    tap(240, 313, 1800);
 
     caption("The previous and next lines can be hidden");
-    tap(406, 361, 1800);
-    drag(240, 120, 240, 470, 800);  // starts on the "Time zone" card, not on a slider
+    tap(406, 290, 1800);
+    drag(100, 168, 100, 470, 800);  // starts on the "When idle for" label, not on a slider
     wait(800);
     tap(BACK_X, BACK_Y, 3000);
 
@@ -253,10 +253,38 @@ void drawFinger(uint8_t *rgb) {
     }
 }
 
+// SIM_SCRIPT=game: opens Groove Breaker with five taps on the volume percentage, launches the ball and
+// sweeps the paddle to and fro, for checking the game and taking its screenshots.
+void buildGameScript() {
+    caption("Groove Breaker: five quick taps on the volume percentage");
+    wait(1500);
+    for (int i = 0; i < 5; i++) tap(60, TOP_Y, 180);
+    wait(1200);
+    caption("Drag the paddle, tap to launch");
+    tap(240, 300, 300);
+    // With SIM_GAME_AUTOPLAY the game steers itself: just let it run.
+    if (getenv("SIM_GAME_AUTOPLAY")) {
+        wait(180000);
+        return;
+    }
+    for (int i = 0; i < 6; i++) {
+        drag(240, 440, 90, 440, 900);
+        drag(90, 440, 390, 440, 1500);
+        drag(390, 440, 240, 440, 900);
+        tap(240, 300, 200);  // launches again after a lost ball
+    }
+    wait(1000);
+}
+
 } // namespace
 
 int run_demo() {
-    buildScript();
+    const char *script = getenv("SIM_SCRIPT");
+    if (script && strcmp(script, "game") == 0) {
+        buildGameScript();
+    } else {
+        buildScript();
+    }
     const char *outPath = getenv("SIM_RECORD");
     FILE *out = !outPath || strcmp(outPath, "-") == 0 ? stdout : fopen(outPath, "wb");
     const char *capPath = getenv("SIM_CAPTIONS") ? getenv("SIM_CAPTIONS") : "demo_captions.txt";

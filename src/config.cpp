@@ -212,6 +212,17 @@ void config_clear_networks() {
     config_save();
 }
 
+void config_reset_for_new_owner() {
+    ScopedLock lock;
+    String clientId = g_config.clientId;
+    int rotation = g_config.rotation;
+    g_config = AppConfig();
+    g_config.clientId = clientId;
+    g_config.rotation = rotation;
+    config_save();
+    LittleFS.remove("/art.jpg");  // SPOTIFY_ART_PATH
+}
+
 std::vector<Pin> config_get_pins() {
     ScopedLock lock;
     return g_config.pins;

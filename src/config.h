@@ -51,6 +51,11 @@ void config_add_network(const String &ssid, const String &pass);
 void config_promote_network(const String &ssid);
 void config_remove_network(const String &ssid);
 void config_clear_networks();
+// Clears everything personal before the device goes to someone else: Wi-Fi networks, the Spotify login,
+// pins, the web password, the downloaded album art and all settings. Keeps the Spotify Client ID (not
+// secret, and handy when the new owner is added to the same Spotify app) and the screen rotation (it
+// matches how the screen is mounted). Restart afterwards: the device then starts in setup mode.
+void config_reset_for_new_owner();
 
 bool config_web_password_set();
 void config_set_web_password(const String &password);

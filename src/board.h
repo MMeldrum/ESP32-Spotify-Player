@@ -26,6 +26,8 @@ constexpr int DEFAULT_ART_SIZE = 640;
 #define BOARD_HAS_OTA 1
 // The square screen has room for shuffle/like/repeat and the previous/next track lines.
 #define BOARD_HAS_EXTRA_CONTROLS 1
+// Groove Breaker, the hidden game (five quick taps on the volume percentage).
+#define BOARD_HAS_GAME 1
 
 #else
 
@@ -46,5 +48,6 @@ constexpr int DEFAULT_ART_SIZE = 300;
 // huge_app.csv has a single app slot: no updates over Wi-Fi.
 #define BOARD_HAS_OTA 0
 #define BOARD_HAS_EXTRA_CONTROLS 0
+#define BOARD_HAS_GAME 0
 
 #endif

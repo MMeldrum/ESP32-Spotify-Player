@@ -176,6 +176,13 @@ const char INDEX_BODY[] PROGMEM = R"rawliteral(
 <div class="msg" id="pw-msg"></div>
 </div>
 
+<div class="section" data-tab="security" hidden>
+<h3>Reset for a new owner</h3>
+<span class="hint">Before giving the device away: forgets all Wi-Fi networks, the Spotify login, pinned playlists and the web password, and sets all settings back to the defaults. The Spotify Client ID and the screen rotation are kept. The device then restarts in setup mode.</span>
+<button type="button" class="small" id="owner-reset" style="margin-top:12px">Reset for a new owner</button>
+<div class="msg" id="owner-msg"></div>
+</div>
+
 <div class="section" data-tab="firmware" hidden>
 <h3>Firmware update</h3>
 <span class="hint">Installed: <span id="fw-built"></span>. The screen stays dark during the update. Choose the update file for this board (<code>firmware.bin</code> from a PlatformIO build, or <code>firmware-esp32-4848s040-update.bin</code> from a release), not the merged file. The device restarts when it is done; your settings are kept.</span>
@@ -317,6 +324,11 @@ $('pw-clear').addEventListener('click',async()=>{
   if(!confirm('Remove the web password? Anyone on your network can then change the settings.'))return;
   await postForm('/clear-password',{});
   setTimeout(()=>location.reload(),600);
+});
+$('owner-reset').addEventListener('click',async()=>{
+  if(!confirm('Erase Wi-Fi networks, the Spotify login, pins, the web password and all settings, then restart in setup mode?'))return;
+  await postForm('/owner-reset',{});
+  $('owner-msg').textContent='Reset done. The device restarts in setup mode: connect to the Spotify-Player-Setup network and open http://192.168.4.1';
 });
 $('wifi-reset').addEventListener('click',async()=>{
   if(!confirm('Forget all saved networks and restart in setup mode?'))return;
@@ -927,6 +939,13 @@ void handleSavePassword(AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "OK");
 }
 
+void handleOwnerReset(AsyncWebServerRequest *request) {
+    config_reset_for_new_owner();
+    app_log(LL_INFO, "Reset for a new owner from the web page");
+    request->send(200, "text/plain", "OK");
+    restartAt = millis() + 1500;
+}
+
 void handleClearPassword(AsyncWebServerRequest *request) {
     config_clear_web_password();
     request->send(200, "text/plain", "OK");
@@ -1145,6 +1164,7 @@ void web_portal_begin() {
     server.on("/pkce", HTTP_GET, handlePkce);
     server.on("/save-wifi", HTTP_POST, handleSaveWifi);
     server.on("/wifi-reset", HTTP_POST, handleWifiReset);
+    server.on("/owner-reset", HTTP_POST, handleOwnerReset);
     server.on("/wifi-remove", HTTP_POST, handleWifiRemove);
     server.on("/api/wifi", HTTP_GET, handleApiWifi);
     server.on("/save-art", HTTP_POST, handleSaveArt);

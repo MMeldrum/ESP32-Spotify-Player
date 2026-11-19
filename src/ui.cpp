@@ -4,6 +4,7 @@
 #include "config.h"
 #include "clock_time.h"
 #include "display.h"
+#include "game.h"
 #include "web_portal.h"
 #include "led.h"
 #include <LittleFS.h>
@@ -87,6 +88,8 @@ lv_obj_t *listRowLbl[LIST_ROWS];
 lv_obj_t *popup = nullptr;
 String (*infoProvider)() = nullptr;
 void (*resetHandler)() = nullptr;
+void (*ownerResetHandler)() = nullptr;
+uint32_t ownerResetArmedUntil = 0;
 uint32_t resetArmedUntil = 0;
 
 lv_color_t *bgPixels = nullptr;
@@ -834,6 +837,24 @@ void onOpenPlaylists(lv_event_t *) { openList(LIST_PLAYLISTS); }
 void onOpenRecent(lv_event_t *) { openList(LIST_RECENT); }
 void onBack(lv_event_t *) { showPlayerScreen(); }
 
+#if BOARD_HAS_GAME
+// The easter egg: five quick taps on the volume percentage open Groove Breaker.
+constexpr int GAME_TAPS = 5;
+constexpr uint32_t GAME_TAP_WINDOW_MS = 2500;
+int gameTaps = 0;
+uint32_t gameFirstTap = 0;
+
+void onVolumeTap(lv_event_t *) {
+    if (gameTaps == 0 || millis() - gameFirstTap > GAME_TAP_WINDOW_MS) {
+        gameTaps = 0;
+        gameFirstTap = millis();
+    }
+    if (++gameTaps < GAME_TAPS) return;
+    gameTaps = 0;
+    game_open(bgVisible ? bgPixels : nullptr, bgW, bgH, curAccent, showPlayerScreen);
+}
+#endif
+
 void setPercentLabel(lv_obj_t *lbl, int value) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%d%%", value);
@@ -1040,6 +1061,18 @@ void onSettingsUnloaded(lv_event_t *) {
     ddRotation = nullptr;
 }
 
+// Reset for a new owner: the first tap arms the button, a second within 4 s erases and restarts.
+void onOwnerResetTap(lv_event_t *e) {
+    lv_obj_t *label = lv_obj_get_child(lv_event_get_target(e), 0);
+    if ((int32_t)(millis() - ownerResetArmedUntil) < 0) {
+        lv_label_set_text(label, "Erasing...");
+        if (ownerResetHandler) ownerResetHandler();
+        return;
+    }
+    ownerResetArmedUntil = millis() + 4000;
+    lv_label_set_text(label, "Tap to confirm");
+}
+
 void buildSettingsUi() {
     screenSettings = lv_obj_create(nullptr);
     styleScreen(screenSettings, DEFAULT_TINT);
@@ -1134,6 +1167,15 @@ void buildSettingsUi() {
     makeSingleLine(lbl, &FONT_UI_SMALL);
     lv_label_set_text(lbl, LV_SYMBOL_REFRESH "  Rotation");
     lv_obj_set_y(lbl, S(6) + (S(28) - lv_font_get_line_height(&FONT_UI_SMALL)) / 2);
+
+    // Before giving the device away: erases Wi-Fi, the Spotify login, pins, password and settings.
+    ownerResetArmedUntil = 0;
+    card = makeGlass(screenSettings, S(12), EXTRA_ROW ? S(506) : S(458), cardW, S(40), S(18));
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_t *btnReset = makeGlassButton(card, S(14), S(6), cardW - S(28), S(28), onOwnerResetTap, nullptr);
+    lv_obj_set_style_bg_color(btnReset, lv_color_hex(0xB3261E), 0);
+    lv_obj_set_style_bg_opa(btnReset, LV_OPA_COVER, 0);
+    makeButtonLabel(btnReset, LV_SYMBOL_TRASH "  Reset for a new owner");
 }
 
 // --- Idle clock ---
@@ -1322,6 +1364,11 @@ void buildPlayerUi() {
 
     lblVolume = makeLabel(topBar, S(14), S(10), S(62), DEFAULT_ACCENT, &FONT_UI_SMALL);
     makeSingleLine(lblVolume, &FONT_UI_SMALL);
+#if BOARD_HAS_GAME
+    lv_obj_add_flag(lblVolume, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(lblVolume, S(8));
+    lv_obj_add_event_cb(lblVolume, onVolumeTap, LV_EVENT_CLICKED, nullptr);
+#endif
 
     lv_obj_t *btnDevice = makeGlassButton(topBar, SCREEN_W - S(122), S(5), S(54), S(28), onOpenDevices, nullptr);
     // A speaker next to a phone (src/icons): no symbol font has a "devices" glyph.
@@ -1501,6 +1548,8 @@ void ui_set_hint(const char *text) {
 void ui_set_reset_handler(void (*handler)()) {
     resetHandler = handler;
 }
+
+void ui_set_owner_reset_handler(void (*handler)()) { ownerResetHandler = handler; }
 
 void show_setup_screen() {
     display_set_screen_on(true);
